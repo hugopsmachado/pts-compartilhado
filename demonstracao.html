@@ -143,6 +143,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 .dot{width:24px;height:18px;border-radius:3px;font-size:9.5px;font-weight:700;display:grid;place-items:center;border:1px solid var(--c);color:var(--c);letter-spacing:.02em}
 .dot.done{background:var(--c);color:var(--surface)}
 .dot.na{border-style:dashed;color:var(--muted);border-color:var(--line);opacity:.8}
+.dot.alta{opacity:.5;text-decoration:line-through;border-style:dotted}
+.pill.closed,.pill.alta{background:var(--surface-2);color:var(--muted);border-color:var(--line)}
+.area.alta .area-h h3::before{background:var(--field)}
+.area-alt{padding:0 14px 12px;display:flex;justify-content:flex-end}
 .a-fisio{--c:var(--fisio)}.a-fono{--c:var(--fono)}.a-nutri{--c:var(--nutri)}.a-psico{--c:var(--psico)}.a-to{--c:var(--to)}.a-ss{--c:var(--ss)}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--c)}
 .chip::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--c)}
@@ -470,7 +474,7 @@ const diasDesde=iso=>Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/
 const haDias=iso=>{const n=diasDesde(iso);return n===0?'hoje':n===1?'há 1 dia':'há '+n+' dias'};
 const pedById=id=>S.pedidos.find(x=>x.id===id);
 function pedidosPara(uid){return S.pedidos.filter(x=>x.status==='aguardando'&&x.destinoId===uid)}
-function ptsDoProntuario(pr){pr=(pr||'').trim();return pr?S.pts.find(x=>x.prontuario===pr&&!x.assinadoEm):null}
+function ptsDoProntuario(pr){pr=(pr||'').trim();return pr?S.pts.find(x=>x.prontuario===pr&&!x.assinadoEm&&!x.encerradoEm):null}
 function pedAtrasado(x){return x.status==='aguardando'&&diasDesde(x.criadoEm)>=7}
 function textoCobranca(x){const de=prof(x.solicitanteId),para=prof(x.destinoId);return `Olá, ${para?.nome.split(' ')[0]||''}! O paciente ${x.nome}${x.prontuario?' (prontuário '+x.prontuario+')':''} ainda não tem PTS aberto. Pedi a abertura no PTS Compartilhado ${haDias(x.criadoEm)}. Consegue abrir? Assim a equipe já pode preencher os objetivos. – ${de?.nome||''} (${de?AREA[de.area].nome:''})`}
 const GOV=()=>S.metodoAss==='govbr';
@@ -479,8 +483,8 @@ const VALIDADOR='https://validar.iti.gov.br/';
 
 /* ---------- assinaturas gov.br (em paralelo) ---------- */
 // Todos assinam cópias do MESMO PDF ("versão para assinatura"), em qualquer ordem. O site guarda cada arquivo assinado.
-function govSignatarios(p){const out=[];SIG_ORDER.forEach(k=>{const pid=p.equipe[k];if(pid&&pid!==p.respId&&!out.some(x=>x.profId===pid))out.push({profId:pid,papel:AREA[k].nome})});
-  const areasResp=AREAS.filter(a=>p.equipe[a.k]===p.respId).map(a=>a.nome);out.push({profId:p.respId,papel:'Responsável pelo PTS'+(areasResp.length?' e '+areasResp.join(', '):'')});return out}
+function govSignatarios(p){const out=[];SIG_ORDER.forEach(k=>{const pid=(altaDe(p,k)&&!p.areas[k]?.concluidoEm)?null:p.equipe[k];if(pid&&pid!==respDoc(p)&&!out.some(x=>x.profId===pid))out.push({profId:pid,papel:AREA[k].nome})});
+  const areasResp=AREAS.filter(a=>p.equipe[a.k]===respDoc(p)).map(a=>a.nome);out.push({profId:respDoc(p),papel:'Responsável pelo PTS'+(areasResp.length?' e '+areasResp.join(', '):'')});return out}
 function govAss(p){if(!p.gov||!p.gov.ass)p.gov={base:null,ass:{}};return p.gov.ass}
 function govFaltam(p){const a=govAss(p);return govSignatarios(p).filter(x=>!a[x.profId])}
 function govCompleto(p){return govFaltam(p).length===0}
@@ -543,9 +547,14 @@ function initPad(){
 const prof=id=>S.profs.find(p=>p.id===id);
 const me=()=>prof(S.currentUser)||S.profs[0];
 const ptsById=id=>S.pts.find(p=>p.id===id);
-function ativas(p){return AREAS.filter(a=>p.equipe[a.k])}
+function altaDe(p,k){return (p.altas&&p.altas[k])||null}
+function respDoc(p){return p.respDoc||p.respId}
+const MOTIVOS_ALTA=['Objetivos alcançados','Faltas / abandono do tratamento','Encaminhado para outro serviço','A pedido do paciente ou da família','Óbito','Outro'];
+function trocarResp(p,nr){if(!nr||nr===p.respId)return;if(p.assinadoEm){if(!p.respDoc)p.respDoc=p.respId}else govReset(p,'responsável pelo PTS alterado');p.respId=nr}
+function ativas(p){return AREAS.filter(a=>p.equipe[a.k]&&!(altaDe(p,a.k)&&!p.areas[a.k]?.concluidoEm))}
 function feitas(p){return ativas(p).filter(a=>p.areas[a.k]&&p.areas[a.k].concluidoEm)}
 function status(p){
+  if(p.encerradoEm)return {k:'closed',t:'Encerrado (alta)'};
   if(p.assinadoEm){const venc=addMonths(p.assinadoEm,12);return todayStr()>=venc?{k:'late',t:'Renovar PTS',venc}:{k:'signed',t:'Assinado',venc}}
   const at=ativas(p);if(at.length&&feitas(p).length===at.length){if(GOV()&&!govCompleto(p))return {k:'gov',t:'Assinaturas gov.br'};return {k:'ready',t:GOV()?'Pronto para o paciente':'Pronto para assinatura'}}
   if(p.prazo&&p.prazo<todayStr())return {k:'late',t:'Preenchimento atrasado'};
@@ -559,7 +568,7 @@ function hist(p,t){p.historico.push({em:nowISO(),texto:t})}
 function toast(t){const el=$('#toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>el.hidden=true,2600)}
 
 /* ---------- componentes ---------- */
-function dots(p){return '<span class="dots">'+AREAS.map(a=>{const pid=p.equipe[a.k];const cls=!pid?'na':(p.areas[a.k]?.concluidoEm?'done':'');const tip=a.nome+': '+(!pid?'não atende':(p.areas[a.k]?.concluidoEm?'concluído':'pendente')+' ('+(prof(pid)?.nome||'')+')');return `<span class="dot a-${a.k} ${cls}" title="${esc(tip)}" aria-label="${esc(tip)}">${a.sigla}</span>`}).join('')+'</span>'}
+function dots(p){return '<span class="dots">'+AREAS.map(a=>{const pid=p.equipe[a.k];const al=pid&&altaDe(p,a.k);const cls=!pid?'na':al?'alta':(p.areas[a.k]?.concluidoEm?'done':'');const tip=a.nome+': '+(!pid?'não atende':al?'alta em '+fmtD(al.em)+' ('+(prof(pid)?.nome||'')+')':(p.areas[a.k]?.concluidoEm?'concluído':'pendente')+' ('+(prof(pid)?.nome||'')+')');return `<span class="dot a-${a.k} ${cls}" title="${esc(tip)}" aria-label="${esc(tip)}">${a.sigla}</span>`}).join('')+'</span>'}
 function pill(p){const s=status(p);return `<span class="pill ${s.k}">${esc(s.t)}</span>`}
 function profOptions(area,sel){return `<option value="">Não atende este paciente</option>`+S.profs.filter(p=>p.area===area).map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.nome)}</option>`).join('')}
 
@@ -567,11 +576,11 @@ function profOptions(area,sel){return `<option value="">Não atende este pacient
 function encRow(x,cols){return `<tr class="inline-form"><td colspan="${cols}"><form class="row" id="form-encaminhar" data-id="${x.id}" style="align-items:flex-end"><label class="f" for="enc-para" style="min-width:220px">Encaminhar para<select id="enc-para">${S.profs.filter(p=>p.id!==x.destinoId).map(p=>`<option value="${p.id}">${esc(p.nome)} (${esc(AREA[p.area].nome)})</option>`).join('')}</select></label><label class="f" for="enc-mot" style="flex:1;min-width:200px">Motivo<input type="text" id="enc-mot" placeholder="Ex.: Não atendo este paciente"></label><button class="btn primary" type="submit">Encaminhar</button><button class="btn" type="button" data-act="ped-enc-cancelar">Cancelar</button></form></td></tr>`}
 function vPainel(){
   const u=me();
-  const ativos=S.pts.filter(p=>!p.assinadoEm);
+  const ativos=S.pts.filter(p=>!p.assinadoEm&&!p.encerradoEm);
   const pedMim=pedidosPara(u.id);
   const govPend=GOV()?ativos.filter(p=>status(p).k==='gov'&&govFaltam(p).some(x=>x.profId===u.id)):[];
-  const pend=[];ativos.forEach(p=>AREAS.forEach(a=>{if(p.equipe[a.k]===u.id&&!p.areas[a.k]?.concluidoEm)pend.push({p,a})}));
-  const resp=S.pts.filter(p=>p.respId===u.id).sort((a,b)=>({late:0,ready:1,gov:2,fill:3,signed:4}[status(a).k])-({late:0,ready:1,gov:2,fill:3,signed:4}[status(b).k]));
+  const pend=[];ativos.forEach(p=>AREAS.forEach(a=>{if(p.equipe[a.k]===u.id&&!p.areas[a.k]?.concluidoEm&&!altaDe(p,a.k))pend.push({p,a})}));
+  const resp=S.pts.filter(p=>p.respId===u.id).sort((a,b)=>({late:0,ready:1,gov:2,fill:3,signed:4,closed:5}[status(a).k])-({late:0,ready:1,gov:2,fill:3,signed:4,closed:5}[status(b).k]));
   const meusPed=S.pedidos.filter(x=>x.solicitanteId===u.id&&(x.status==='aguardando'||diasDesde(x.respondidoEm||x.criadoEm)<=7));
   const naoLid=S.pts.filter(p=>naEquipe(p,u.id)).reduce((n,p)=>n+naoLidas(p),0);
   const atras=pend.filter(({p})=>p.prazo&&p.prazo<todayStr()).length+pedMim.filter(pedAtrasado).length;
@@ -603,10 +612,10 @@ function vPainel(){
   </tbody></table></div></section>`:''}`;
 }
 function vLista(){
-  const sorted=[...S.pts].sort((a,b)=>{const o={late:0,ready:1,gov:1.5,fill:2,signed:3};return o[status(a).k]-o[status(b).k]||(b.criadoEm>a.criadoEm?1:-1)});
+  const sorted=[...S.pts].sort((a,b)=>{const o={late:0,ready:1,gov:1.5,fill:2,signed:3,closed:4};return o[status(a).k]-o[status(b).k]||(b.criadoEm>a.criadoEm?1:-1)});
   return `<div class="pagehead"><div><h1>Projetos terapêuticos</h1><p>${S.pts.length} PTS cadastrados</p></div></div>
   <section class="panel">
-   <div class="toolbar"><input type="search" id="flt-q" placeholder="Buscar por nome ou prontuário" aria-label="Buscar"><select id="flt-st" aria-label="Situação"><option value="">Todas as situações</option><option value="fill">Em preenchimento</option><option value="gov">Assinaturas gov.br</option><option value="ready">Pronto</option><option value="signed">Assinado</option><option value="late">Atrasado / renovar</option></select><span class="small muted" id="flt-n" style="margin-left:auto"></span></div>
+   <div class="toolbar"><input type="search" id="flt-q" placeholder="Buscar por nome ou prontuário" aria-label="Buscar"><select id="flt-st" aria-label="Situação"><option value="">Todas as situações</option><option value="fill">Em preenchimento</option><option value="gov">Assinaturas gov.br</option><option value="ready">Pronto</option><option value="signed">Assinado</option><option value="late">Atrasado / renovar</option><option value="closed">Encerrado (alta)</option></select><span class="small muted" id="flt-n" style="margin-left:auto"></span></div>
    <div class="tbl-wrap"><table><thead><tr><th>Paciente</th><th>Prontuário</th><th>Responsável</th><th>Áreas</th><th>Situação</th><th>Prazo / renovação</th></tr></thead><tbody id="flt-body">
    ${sorted.map(p=>{const st=status(p);const nl=naoLidas(p);return `<tr data-go="pts-${p.id}" data-q="${esc((p.nome+' '+p.prontuario).toLowerCase())}" data-st="${st.k}"><td><b>${esc(p.nome)}</b> ${nl?`<span class="badge-new">${nl}</span>`:''}<span class="sub">${esc(p.hipotese||'')}</span></td><td class="num">${esc(p.prontuario)}</td><td>${esc(prof(p.respId)?.nome||'—')}</td><td>${dots(p)}</td><td>${pill(p)}</td><td class="num">${st.venc?'Renovar em '+fmtD(st.venc):(p.prazo?fmtD(p.prazo):'—')}</td></tr>`}).join('')||'<tr><td colspan="6" class="muted">Nenhum PTS cadastrado.</td></tr>'}
    </tbody></table></div>
@@ -615,6 +624,25 @@ function vLista(){
 function aplicarFiltro(){const q=($('#flt-q')?.value||'').trim().toLowerCase(),st=$('#flt-st')?.value||'';let n=0;document.querySelectorAll('#flt-body tr[data-q]').forEach(tr=>{const ok=(!q||tr.dataset.q.includes(q))&&(!st||tr.dataset.st===st);tr.hidden=!ok;if(ok)n++});const el=$('#flt-n');if(el)el.textContent=n+' resultado'+(n===1?'':'s')}
 let encaminhando=null;
 let ptsTab={id:null,tab:'objetivos'};
+let altaForm=null;
+function altaFormHTML(p,k){const pid=p.equipe[k];
+  const outrasDoProf=AREAS.some(a=>a.k!==k&&p.equipe[a.k]===pid&&!altaDe(p,a.k));
+  const restantes=[...new Set(AREAS.filter(a=>a.k!==k&&p.equipe[a.k]&&!altaDe(p,a.k)).map(a=>p.equipe[a.k]))].filter(id=>id!==pid&&prof(id));
+  const ultima=!AREAS.some(a=>a.k!==k&&p.equipe[a.k]&&!altaDe(p,a.k));
+  const transf=pid===p.respId&&!outrasDoProf&&!ultima&&restantes.length;
+  return `<form class="signpanel" id="form-alta" data-area="${k}" data-pts="${p.id}">
+   <h3 style="margin:0">Registrar alta – ${AREA[k].nome}</h3>
+   <p class="decl">O paciente deixa de ser atendido por ${esc(prof(pid)?.nome||'')} nesta área. Os objetivos já registrados continuam no PTS e o restante da equipe segue normalmente.</p>
+   <div class="fgrid">
+    <label class="f c2" for="al-data">Data da alta<input type="date" id="al-data" value="${todayStr()}" max="${todayStr()}"></label>
+    <label class="f c4" for="al-mot">Motivo<select id="al-mot">${MOTIVOS_ALTA.map(m=>`<option>${m}</option>`).join('')}</select></label>
+    <label class="f c6" for="al-obs">Observação (opcional)<input type="text" id="al-obs" placeholder="Ex.: Orientado a manter acompanhamento na UBS de referência"></label>
+    ${transf?`<label class="f c6" for="al-resp">Quem assume a responsabilidade pelo PTS<select id="al-resp">${restantes.map(id=>`<option value="${id}">${esc(prof(id).nome)} (${esc(AREA[prof(id).area].nome)})</option>`).join('')}</select><span class="hint">${esc(prof(pid)?.nome||'')} é o responsável por este PTS. Escolha quem continua acompanhando o caso.</span></label>`:''}
+   </div>
+   ${ultima?'<div class="callout info"><div>Esta é a última área em atendimento. Com esta alta, o PTS será <b>encerrado</b>.</div></div>':''}
+   <p class="small" id="al-err" style="color:var(--late);font-weight:600;margin:0" hidden></p>
+   <div class="row"><button class="btn primary" type="submit">Confirmar alta</button><button class="btn" type="button" data-act="alta-cancelar">Cancelar</button></div>
+  </form>`}
 function reqStatus(x){if(x.status==='atendido')return `<span class="pill done">PTS aberto</span>`;if(x.status==='recusado')return `<span class="pill late">Recusado</span>`;return `<span class="pill ${pedAtrasado(x)?'late':'wait'}">${diasDesde(x.criadoEm)?'Aguardando '+haDias(x.criadoEm).replace('há ',''):'Pedido hoje'}</span>`}
 function reqCard(x,visao){
   const de=prof(x.solicitanteId),para=prof(x.destinoId);const nc=(x.cobrancas||[]).length;
@@ -688,7 +716,8 @@ function vPTS(p){
   const u=me(), s=status(p), isResp=p.respId===u.id, travado=!!p.assinadoEm;
   const at=ativas(p), ft=feitas(p);
   let call='';
-  if(s.k==='gov'){const fz=govFaltam(p),eu=fz.some(x=>x.profId===u.id),tot=govSignatarios(p).length;call=`<div class="callout info"><div><b>Objetivos completos. Cada profissional assina o PDF pelo gov.br, quando puder e em qualquer ordem.</b> ${tot-fz.length} de ${tot} assinaram. Faltam: ${fz.map(x=>esc(prof(x.profId)?.nome||'')+(x.profId===u.id?' (você)':'')).join(', ')}.</div><a class="btn ${eu?'primary':''}" href="#ficha-${p.id}">${eu?'Assinar agora':'Ver assinaturas'}</a></div>`}
+  if(s.k==='closed')call=`<div class="callout info"><div><b>PTS encerrado em ${fmtD(p.encerradoEm)}.</b> Todas as áreas registraram alta. Para reabrir, desfaça a alta de uma das áreas.</div></div>`;
+  else if(s.k==='gov'){const fz=govFaltam(p),eu=fz.some(x=>x.profId===u.id),tot=govSignatarios(p).length;call=`<div class="callout info"><div><b>Objetivos completos. Cada profissional assina o PDF pelo gov.br, quando puder e em qualquer ordem.</b> ${tot-fz.length} de ${tot} assinaram. Faltam: ${fz.map(x=>esc(prof(x.profId)?.nome||'')+(x.profId===u.id?' (você)':'')).join(', ')}.</div><a class="btn ${eu?'primary':''}" href="#ficha-${p.id}">${eu?'Assinar agora':'Ver assinaturas'}</a></div>`}
   else if(s.k==='ready') call=`<div class="callout ready"><div><b>${GOV()?'Todos assinaram pelo gov.br.':'Todas as áreas preencheram.'}</b> ${isResp?'Gere a ficha, explique ao paciente/responsável e registre a assinatura.':'Aguardando o responsável colher a assinatura.'}</div><div class="row"><a class="btn primary" href="#ficha-${p.id}">Ver ficha para impressão</a></div></div>`;
   else if(s.k==='signed') call=`<div class="callout signed"><div><b>Assinado em ${fmtD(p.assinadoEm)}.</b> Novo PTS previsto para ${fmtD(s.venc)} (12 meses).</div><div class="row"><a class="btn" href="#ficha-${p.id}">Ver ficha</a></div></div>`;
   else if(s.k==='late'&&p.assinadoEm) call=`<div class="callout late"><div><b>12 meses de tratamento completados em ${fmtD(s.venc)}.</b> Faça um novo PTS para continuidade do tratamento.</div><div class="row"><a class="btn" href="#ficha-${p.id}">Ver ficha anterior</a>${isResp?`<button class="btn primary" data-act="renovar" data-id="${p.id}">Abrir novo PTS</button>`:''}</div></div>`;
@@ -698,6 +727,10 @@ function vPTS(p){
     const pid=p.equipe[a.k];
     if(!pid) return `<article class="area na a-${a.k}"><div class="area-h"><h3>${a.nome}</h3><span class="small muted">Não atende</span></div><div class="area-b">Esta área não atende o paciente. Na ficha sai como "Não se aplica".</div></article>`;
     const ar=p.areas[a.k]||(p.areas[a.k]={medio:'',longo:'',concluidoEm:null,atualizadoEm:null});
+    const podeAlta=pid===u.id||isResp||u.papel==='coord', al=altaDe(p,a.k);
+    if(al)return `<article class="area alta a-${a.k}" id="area-${a.k}"><div class="area-h"><div><h3>${a.nome}</h3><div class="small muted">${esc(prof(pid)?.nome||'')}${pid===u.id?' (você)':''}</div></div><span class="pill alta">Alta em ${fmtD(al.em)}</span></div>
+     <div class="area-b">${(ar.medio||ar.longo)?`<label class="f">Médio prazo (6 meses)<textarea readonly>${esc(ar.medio)}</textarea></label><label class="f">Longo prazo (12 meses)<textarea readonly>${esc(ar.longo)}</textarea></label>`:'<p class="small muted" style="margin:0">Objetivos não preenchidos antes da alta.</p>'}</div>
+     <div class="area-f"><span class="lock"><b>Motivo da alta:</b> ${esc(al.motivo)}${al.obs?' · '+esc(al.obs):''} · registrada por ${esc(prof(al.porId)?.nome||'')}</span>${podeAlta?`<button class="btn" data-act="alta-desfazer" data-area="${a.k}">Desfazer alta</button>`:''}</div></article>`;
     const pode=pid===u.id&&!travado, done=!!ar.concluidoEm;
     const ro=!pode||done||(signing&&signing.pts===p.id&&signing.k===a.k);
     const emAss=signing&&signing.pts===p.id&&signing.k===a.k;
@@ -710,6 +743,7 @@ function vPTS(p){
      ${!GOV()&&done&&ar.assinatura?`<div class="area-f" style="justify-content:flex-start"><div class="sigline">${sigMini(ar.assinatura)}<span>${esc(sigStamp(ar.assinatura))}</span></div></div>`:''}
      ${emAss?signPanel(p,a.k):`<div class="area-f"><span class="lock" id="st-${a.k}">${pode?(done?(GOV()?'Concluído. Para editar, reabra'+(govIniciado(p)?' (as assinaturas gov.br serão reiniciadas).':'.'):'Assinado. Para editar, reabra (a assinatura será anulada).'):(ar.atualizadoEm?'Rascunho salvo '+fmtDT(ar.atualizadoEm):'Salva automaticamente enquanto você digita.')):(travado?'PTS assinado: objetivos travados.':'Só '+esc(prof(pid)?.nome||'')+' pode editar esta área.')}</span>
       ${pode?(done?`<button class="btn" data-act="reabrir" data-area="${a.k}">Reabrir para editar</button>`:(GOV()?`<button class="btn primary" data-act="concluir" data-area="${a.k}">Concluir minha parte</button>`:`<button class="btn primary" data-act="abrir-assinar" data-area="${a.k}">Concluir e assinar</button>`)):''}</div>`}
+     ${altaForm&&altaForm.pts===p.id&&altaForm.k===a.k?altaFormHTML(p,a.k):(podeAlta&&!emAss?`<div class="area-alt"><button class="btn ghost sm" data-act="alta-abrir" data-area="${a.k}">Registrar alta desta área</button></div>`:'')}
     </article>`;
   };
   const podeFalar=naEquipe(p,u.id);
@@ -736,6 +770,7 @@ function vPTS(p){
       <div><dt>Prazo de preenchimento</dt><dd class="num">${fmtD(p.prazo)||'—'}</dd></div>
       <div><dt>Responsável</dt><dd>${esc(prof(p.respId)?.nome||'—')}</dd></div>
     </dl></div></section>
+    ${(isResp||u.papel==='coord')&&!p.encerradoEm?`<section class="panel"><div class="panel-h"><h2>Transferir responsabilidade</h2></div><form class="panel-b row" id="form-transf" data-pts="${p.id}" style="align-items:flex-end"><label class="f" for="tr-resp" style="min-width:260px;flex:1">Novo responsável pelo PTS<select id="tr-resp">${(()=>{const eq=[...new Set(AREAS.filter(a=>p.equipe[a.k]&&!altaDe(p,a.k)).map(a=>p.equipe[a.k]))].filter(id=>id!==p.respId&&prof(id));const out=S.profs.filter(x=>x.id!==p.respId&&!eq.includes(x.id));return (eq.length?`<optgroup label="Equipe deste PTS">${eq.map(id=>`<option value="${id}">${esc(prof(id).nome)} (${esc(AREA[prof(id).area].nome)})</option>`).join('')}</optgroup>`:'')+(out.length?`<optgroup label="Outros profissionais">${out.map(x=>`<option value="${x.id}">${esc(x.nome)} (${esc(AREA[x.area].nome)})</option>`).join('')}</optgroup>`:'')})()}</select></label><button class="btn" type="submit">Transferir</button><span class="small muted" style="flex-basis:100%">Use quando o responsável sair do caso. ${p.assinadoEm?'A ficha já assinada continua com o nome de quem assinou.':''}</span></form></section>`:''}
     ${isResp&&!travado?`<section class="panel"><div class="panel-h"><h2>Excluir PTS</h2></div><div class="panel-b row" style="justify-content:space-between"><span class="small muted">Apaga o PTS, os objetivos e a conversa. Não dá para desfazer.</span><button class="btn danger" data-act="excluir" data-id="${p.id}">Excluir este PTS</button></div></section>`:''}`;
   else pane=`<section class="panel"><div class="panel-h"><h2>Histórico</h2></div><div class="tbl-wrap"><table style="min-width:0"><thead><tr><th style="width:150px">Data</th><th>Evento</th></tr></thead><tbody>${[...p.historico].reverse().map(h=>`<tr><td class="num">${fmtD(h.em)} ${fmtDT(h.em).split(' às ')[1]}</td><td>${esc(h.texto)}</td></tr>`).join('')}</tbody></table></div></section>`;
   const T=(k,t,c,cls)=>`<button role="tab" aria-selected="${tab===k}" class="${tab===k?'on':''}" data-act="tab" data-tab="${k}">${t}${c!=null?`<span class="cnt ${cls||''}">${c}</span>`:''}</button>`;
@@ -759,10 +794,10 @@ function vPTS(p){
 }
 
 function fichaHTML(p){
-  const resp=prof(p.respId);
+  const resp=prof(respDoc(p));
   const v=t=>`<span class="v">${esc(t)}</span>`;
   const bx=on=>`<span class="bx">${on?'X':''}</span>`;
-  const obj=(k,campo)=>p.equipe[k]?(p.areas[k]?.[campo]||''):'Não se aplica';
+  const obj=(k,campo)=>p.equipe[k]?(p.areas[k]?.[campo]||(altaDe(p,k)?'Alta em '+fmtD(altaDe(p,k).em):'')):'Não se aplica';
   const sec=(t,campo)=>`<div class="sec"><div>Objetivos em <b>${t}</b></div>${AREAS.map(a=>`<div class="fl"><span class="lb">${a.form}</span>${v(obj(a.k,campo))}</div>`).join('')}</div>`;
   return `<div class="sheet" aria-label="Pré-visualização da ficha"><div class="logos"><img class="la" src="${LOGO_APAE}" alt="APAE Campo Grande"><img class="lc" src="${LOGO_CER}" alt="CER"></div>
    <div class="inst">${esc(S.inst1)}</div><div class="inst">${esc(S.inst2)}</div>
@@ -779,7 +814,7 @@ function fichaHTML(p){
    ${sec('LONGO PRAZO','longo').replace('</b>','</b> (12 meses)')}
    <table class="sig"><tr>${SIG_ORDER.map(k=>{const pr=prof(p.equipe[k]);return `<td>${AREA[k].sig}${(()=>{const ga=GOV()&&p.equipe[k]&&p.gov?.ass?.[p.equipe[k]];if(ga)return `<span class="simg"></span><span class="stamp" style="color:#22693f;font-weight:700">Assinado digitalmente via gov.br em ${fmtD(ga.em)}</span>`;const sg=!GOV()&&p.equipe[k]&&p.areas[k]?.assinatura;return sg?(sg.img?`<img class="simg" src="${sg.img}" alt="">`:`<span class="styped">${esc(sg.nome)}</span>`)+`<span class="stamp">Ass. eletrônica ${fmtD(sg.em)} · ${sg.codigo}</span>`:`<span class="simg"></span><span class="stamp">&nbsp;</span>`})()}${pr?`<span class="who">${esc(pr.nome)}<br>${esc(pr.registro)}</span>`:''}</td>`}).join('')}</tr></table>
    <div class="foot">•&nbsp; APÓS 12 MESES DE TRATAMENTO FAZER NOVO PTS PARA CONTINUIDADE DO TRATAMENTO</div>
-   <div class="signs"><div class="dt">Data Explicação: <span style="border-bottom:1px solid var(--paper-line);display:inline-block;min-width:80px;color:#0d2a57">${fmtD(p.dataExplicacao)}</span></div><div class="rs">${GOV()&&p.gov?.ass?.[p.respId]?`<span class="stamp" style="color:#22693f;font-weight:700">Assinado digitalmente via gov.br em ${fmtD(p.gov.ass[p.respId].em)}</span>`:''}${!GOV()&&p.assResp?(p.assResp.img?`<img src="${p.assResp.img}" alt="">`:`<span class="styped">${esc(p.assResp.nome)}</span>`)+`<span class="stamp">${esc(p.assResp.nome)} · ${esc(p.assResp.registro)} · Cód. ${p.assResp.codigo}</span>`:''}<div class="ln" style="width:100%">Assinatura e Carimbo</div></div><div class="ln">Paciente ou Responsável</div></div>
+   <div class="signs"><div class="dt">Data Explicação: <span style="border-bottom:1px solid var(--paper-line);display:inline-block;min-width:80px;color:#0d2a57">${fmtD(p.dataExplicacao)}</span></div><div class="rs">${GOV()&&p.gov?.ass?.[respDoc(p)]?`<span class="stamp" style="color:#22693f;font-weight:700">Assinado digitalmente via gov.br em ${fmtD(p.gov.ass[respDoc(p)].em)}</span>`:''}${!GOV()&&p.assResp?(p.assResp.img?`<img src="${p.assResp.img}" alt="">`:`<span class="styped">${esc(p.assResp.nome)}</span>`)+`<span class="stamp">${esc(p.assResp.nome)} · ${esc(p.assResp.registro)} · Cód. ${p.assResp.codigo}</span>`:''}<div class="ln" style="width:100%">Assinatura e Carimbo</div></div><div class="ln">Paciente ou Responsável</div></div>
   </div>`;
 }
 
@@ -938,6 +973,11 @@ document.addEventListener('click',async e=>{
   const act=b.dataset.act,rm=route().match(/^(pts|ficha|editar)-(.+)$/),p=b.dataset.id?ptsById(b.dataset.id):(signing&&act.includes('assinar')?ptsById(signing.pts):(rm?ptsById(rm[2]):null));
   if(act==='abrir-assinar'){const k=b.dataset.area;if(k!=='resp'){const ar=p.areas[k];if(!ar.medio.trim()||!ar.longo.trim()){toast('Preencha médio e longo prazo antes de assinar.');return}}signing={pts:p.id,k,modo:'desenho'};render();return}
   if(act==='cancelar-assinar'){signing=null;render();return}
+  if(act==='alta-abrir'){altaForm={pts:p.id,k:b.dataset.area};render();setTimeout(()=>document.getElementById('form-alta')?.scrollIntoView({block:'nearest'}),0);return}
+  if(act==='alta-cancelar'){altaForm=null;render();return}
+  if(act==='alta-desfazer'){const k=b.dataset.area;if(!b.dataset.ok){b.dataset.ok='1';b.textContent='Clique de novo para desfazer';return}
+    const al=altaDe(p,k);if(!al)return;delete p.altas[k];const reab=!!p.encerradoEm;p.encerradoEm=null;
+    hist(p,'Alta de '+AREA[k].nome+' desfeita por '+me().nome+(reab?' (PTS reaberto)':''));save(true);render();toast('Alta desfeita.'+(reab?' O PTS voltou a ficar ativo.':'')+' O responsável pelo PTS não foi alterado.');return}
   if(act==='limpar-pad'){const c=$('#pad');c.getContext('2d').clearRect(0,0,c.width,c.height);padDirty=false;return}
   if(act==='confirmar-assinar'){
     const u=me(),err=$('#sig-err'),fail=t=>{err.textContent=t;err.hidden=false};
@@ -966,7 +1006,7 @@ document.addEventListener('click',async e=>{
   if(act==='pdf'){gerarPDF(p)}
   if(act==='assinar'){const dt=$('#f-dtexp')?.value||todayStr();p.dataExplicacao=dt;p.assinadoEm=new Date(dt+'T12:00:00').toISOString();hist(p,'Assinatura do paciente/responsável registrada');save(true);render();toast('Assinatura registrada. Renovação em '+fmtD(addMonths(p.assinadoEm,12))+'.')}
   if(act==='desfazer-assinatura'){p.assinadoEm=null;hist(p,'Registro de assinatura desfeito');save(true);render()}
-  if(act==='renovar'){const n=JSON.parse(JSON.stringify(p));Object.assign(n,{id:uid(),criadoEm:nowISO(),assinadoEm:null,dataExplicacao:'',objPaciente:'',mensagens:[],historico:[],prazo:(()=>{const x=new Date();x.setDate(x.getDate()+7);return x.toISOString().slice(0,10)})()});AREAS.forEach(a=>n.areas[a.k]={medio:'',longo:'',concluidoEm:null,atualizadoEm:null});hist(n,'Novo PTS (renovação) aberto por '+me().nome);S.pts.push(n);save(true);location.hash='#editar-'+n.id;toast('Novo PTS criado com os dados e a equipe anteriores. Revise e salve.')}
+  if(act==='renovar'){const n=JSON.parse(JSON.stringify(p));AREAS.forEach(a=>{if(altaDe(p,a.k))n.equipe[a.k]=null});Object.assign(n,{altas:{},encerradoEm:null,respDoc:null,id:uid(),criadoEm:nowISO(),assinadoEm:null,dataExplicacao:'',objPaciente:'',mensagens:[],historico:[],prazo:(()=>{const x=new Date();x.setDate(x.getDate()+7);return x.toISOString().slice(0,10)})()});AREAS.forEach(a=>n.areas[a.k]={medio:'',longo:'',concluidoEm:null,atualizadoEm:null});hist(n,'Novo PTS (renovação) aberto por '+me().nome);S.pts.push(n);save(true);location.hash='#editar-'+n.id;toast('Novo PTS criado com os dados e a equipe anteriores. Revise e salve.')}
   if(act==='excluir'){if(b.dataset.ok){S.pts=S.pts.filter(x=>x.id!==p.id);save(true);location.hash='#painel';toast('PTS excluído.')}else{b.dataset.ok='1';b.textContent='Clique de novo para excluir'}}
   if(act==='rm-prof'){const id=b.dataset.id;const uso=S.pts.filter(x=>x.respId===id||AREAS.some(a=>x.equipe[a.k]===id));if(uso.length){toast('Não dá para remover: está em '+uso.length+' PTS. Troque-o na equipe desses PTS antes.');return}if(S.profs.length<=1){toast('Mantenha ao menos um profissional.');return}S.profs=S.profs.filter(x=>x.id!==id);save(true);render()}
   if(act==='exportar'){const data=JSON.stringify(S,null,2);const fn='pts-backup-'+todayStr()+'.json';await salvarArquivo(fn,new Blob([data],{type:'application/json'}))}
@@ -997,6 +1037,21 @@ document.addEventListener('input',e=>{
 document.addEventListener('keydown',e=>{if(e.target.id==='msg-txt'&&e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('#form-msg').requestSubmit()}});
 document.addEventListener('submit',e=>{
   e.preventDefault();const f=e.target;
+  if(f.id==='form-alta'){const p=ptsById(f.dataset.pts),k=f.dataset.area,u=me(),pid=p.equipe[k],err=$('#al-err');
+    const em=$('#al-data').value;if(!em){err.textContent='Informe a data da alta.';err.hidden=false;return}
+    if(em>todayStr()){err.textContent='A data da alta não pode ser no futuro.';err.hidden=false;return}
+    const motivo=$('#al-mot').value,obs=$('#al-obs').value.trim();
+    p.altas=p.altas||{};p.altas[k]={em,motivo,obs,porId:u.id,registradoEm:nowISO()};
+    let txt='Alta de '+AREA[k].nome+' ('+(prof(pid)?.nome||'')+') em '+fmtD(em)+'. Motivo: '+motivo+(obs?' – '+obs:'')+'.';
+    const nr=$('#al-resp')?.value;if(nr&&nr!==p.respId){trocarResp(p,nr);txt+=' A responsabilidade pelo PTS passou para '+prof(nr).nome+'.'}
+    if(!AREAS.some(a=>p.equipe[a.k]&&!altaDe(p,a.k))){p.encerradoEm=em;txt+=' Todas as áreas tiveram alta: PTS encerrado.'}
+    hist(p,txt+' Registrado por '+u.nome+'.');
+    p.mensagens.push({id:uid(),autorId:u.id,texto:'Registro automático: '+txt,em:nowISO()});
+    altaForm=null;save(true);render();toast(p.encerradoEm?'Alta registrada. PTS encerrado.':nr?'Alta registrada. '+prof(nr).nome+' agora é responsável pelo PTS.':'Alta registrada.');return}
+  if(f.id==='form-transf'){const p=ptsById(f.dataset.pts),nr=$('#tr-resp')?.value,u=me();if(!nr)return;
+    const ant=prof(p.respId)?.nome||'';trocarResp(p,nr);hist(p,'Responsabilidade pelo PTS transferida de '+ant+' para '+prof(nr).nome+' por '+u.nome+'.');
+    p.mensagens.push({id:uid(),autorId:u.id,texto:'Registro automático: a responsabilidade pelo PTS passou de '+ant+' para '+prof(nr).nome+'.',em:nowISO()});
+    save(true);render();toast(prof(nr).nome+' agora é responsável pelo PTS.');return}
   if(f.id==='form-pedido'){const nome=$('#pd-nome').value.trim(),pr=$('#pd-pront').value.trim(),err=$('#pd-err');
     if(!nome){err.textContent='Informe o nome do paciente.';err.hidden=false;return}
     const ex=ptsDoProntuario(pr);if(ex&&!f.dataset.forcar){const av=$('#pd-aviso');av.innerHTML='Já existe um PTS ativo para o prontuário '+esc(pr)+' ('+esc(ex.nome)+', responsável '+esc(prof(ex.respId)?.nome||'')+'). <a href="#pts-'+ex.id+'">Ver o PTS</a> ou envie de novo para pedir mesmo assim.';av.hidden=false;f.dataset.forcar='1';return}
@@ -1385,12 +1440,12 @@ async function gerarPDF(p,opt){
   const ySave=y;field('Data de Nascimento:',fmtD(p.nasc),M,72);y=ySave;field('Idade:',idade(p.nasc),M+78,W-78);y+=LH+.8;
   font('normal',10);doc.text('Frequenta ensino regular:',M,y);let bx=M+doc.getTextWidth('Frequenta ensino regular:')+3;bx=box(bx,'Sim',p.ensino==='sim');box(bx,'Não',p.ensino==='nao');y+=LH+.8;
   field("Hipótese Diagnóstica:",p.hipotese,M,W);y+=LH+.8;
-  const r=prof(p.respId);field('Profissional Responsável pelo PTS:',r?r.nome+' – '+AREA[r.area].nome:'',M,W,1,true);y+=LH+.8;
+  const r=prof(respDoc(p));field('Profissional Responsável pelo PTS:',r?r.nome+' – '+AREA[r.area].nome:'',M,W,1,true);y+=LH+.8;
   field('Objetivos manifestados pelo paciente:',p.objPaciente,M,W,2);y+=LH+3;
   ensure(16);font('normal',10);doc.text('Encaminhamento para Therasuit',M,y);bx=M+doc.getTextWidth('Encaminhamento para Therasuit')+3;bx=box(bx,'Sim',p.therasuit==='sim');box(bx,'Não',p.therasuit==='nao');y+=LH;
   doc.text('Encaminhamento para Fisioterapia Aquática',M,y);bx=M+doc.getTextWidth('Encaminhamento para Fisioterapia Aquática')+3;bx=box(bx,'Sim',p.aquatica==='sim');box(bx,'Não',p.aquatica==='nao');y+=LH+4;
   function secao(titulo,suf,campo){ensure(20);font('normal',10);ink();doc.text('Objetivos em ',M,y);let x=M+doc.getTextWidth('Objetivos em ');font('bold',10);doc.text(titulo,x,y);x+=doc.getTextWidth(titulo);font('normal',10);doc.text(' '+suf,x,y);y+=LH+.5;
-    AREAS.forEach(a=>{ensure(LH*2);const val=p.equipe[a.k]?(p.areas[a.k]?.[campo]||''):'Não se aplica';field(a.form,val,M,W,val.trim()?1:2);y+=LH+.2});y+=2}
+    AREAS.forEach(a=>{ensure(LH*2);const val=p.equipe[a.k]?(p.areas[a.k]?.[campo]||(altaDe(p,a.k)?'Alta em '+fmtD(altaDe(p,a.k).em):'')):'Não se aplica';field(a.form,val,M,W,val.trim()?1:2);y+=LH+.2});y+=2}
   secao('MÉDIO PRAZO','(6 meses)','medio');
   secao('LONGO PRAZO','(12 meses)','longo');
   // tabela de assinaturas
@@ -1401,7 +1456,7 @@ async function gerarPDF(p,opt){
     if(pr){font('normal',7);blue();doc.text(doc.splitTextToSize(pr.nome,cw-3)[0],x+1.5,y+th-5.6);doc.text(doc.splitTextToSize(pr.registro||'',cw-3)[0],x+1.5,y+th-2.2)}ink()}
   y+=th+4.5;font('bold',8.5);ink();doc.text('•  APÓS 12 MESES DE TRATAMENTO FAZER NOVO PTS PARA CONTINUIDADE DO TRATAMENTO',M+4,y);
   y+=13;font('normal',10);doc.text('Data Explicação:',M,y);const dx=M+doc.getTextWidth('Data Explicação:')+2;doc.line(dx,y+1.2,dx+26,y+1.2);if(p.dataExplicacao){blue();doc.text(fmtD(p.dataExplicacao),dx+1,y);ink()}
-  const sx1=M+58,sx2=M+124,sw=56;doc.line(sx1,y-4,sx1+sw,y-4);doc.line(sx2,y-4,sx2+sw,y-4);font('normal',9.5);doc.text('Assinatura e Carimbo',sx1+sw/2,y+.5,{align:'center'});if(gAss[p.respId]){font('normal',6.2);doc.setTextColor(34,105,63);doc.text('Assinado digitalmente via gov.br em '+fmtD(gAss[p.respId].em),sx1+sw/2,y+4,{align:'center'});ink();font('normal',9.5)}
+  const sx1=M+58,sx2=M+124,sw=56;doc.line(sx1,y-4,sx1+sw,y-4);doc.line(sx2,y-4,sx2+sw,y-4);font('normal',9.5);doc.text('Assinatura e Carimbo',sx1+sw/2,y+.5,{align:'center'});if(gAss[respDoc(p)]){font('normal',6.2);doc.setTextColor(34,105,63);doc.text('Assinado digitalmente via gov.br em '+fmtD(gAss[p.respId].em),sx1+sw/2,y+4,{align:'center'});ink();font('normal',9.5)}
   if(!GOV()&&p.assResp){try{doc.addImage(await sigImg(p.assResp),'PNG',sx1+sw/2-15,y-14.5,30,10)}catch(e){}font('normal',5.8);blue();doc.text('Ass. eletrônica '+fmtD(p.assResp.em)+' · Cód. '+p.assResp.codigo,sx1+sw/2,y+4,{align:'center'});ink();font('normal',9.5)}doc.text('Paciente ou Responsável',sx2+sw/2,y+.5,{align:'center'});
   // rodapé discreto
   const n=doc.getNumberOfPages();for(let i=1;i<=n;i++){doc.setPage(i);font('normal',7);doc.setTextColor(140);doc.text('Gerado pelo PTS Compartilhado em '+fmtD(todayStr())+(GOV()?(opt.versao?' · Versão para assinatura '+opt.versao:'')+'. Assinaturas digitais gov.br conferíveis em validar.iti.gov.br.':'. Assinaturas eletrônicas da equipe conferíveis pelo código na aba "Verificar assinatura".')+(n>1?' · página '+i+' de '+n:''),M,292)}
