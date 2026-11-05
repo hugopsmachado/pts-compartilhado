@@ -15,7 +15,7 @@
   --ok:#22703a; --ok-bg:#e9f5ec; --ok-line:#b5dcc0;
   --late:#b42318; --late-bg:#fdeceb; --late-line:#f3bcb7;
   --info-line:#bcd2ee;
-  --fisio:#1f6fb8; --fono:#7b4bb0; --nutri:#3a7d23; --psico:#b3426a; --to:#b8660c;
+  --fisio:#1f6fb8; --fono:#7b4bb0; --nutri:#3a7d23; --psico:#b3426a; --to:#b8660c; --ss:#0f7c80;
   --paper:#fffffd; --paper-ink:#1d1d1d; --paper-line:#7c7c7c;
   --f-ui:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",Arial,sans-serif;
   --r:4px;
@@ -28,7 +28,7 @@
   --ok:#7fcf98; --ok-bg:#16291c; --ok-line:#2b5236;
   --late:#f2958c; --late-bg:#341a18; --late-line:#5e2c27;
   --info-line:#2d4564;
-  --fisio:#6ea8ef; --fono:#b48ae6; --nutri:#8ac46a; --psico:#e7889f; --to:#eaa45a;
+  --fisio:#6ea8ef; --fono:#b48ae6; --nutri:#8ac46a; --psico:#e7889f; --to:#eaa45a; --ss:#5cc3c6;
   color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#11161d; --surface:#171e27; --surface-2:#1c242e; --ink:#e3e8ee; --muted:#97a3b1; --line:#2b3542; --line-2:#242d39; --field:#3a4655;
@@ -38,7 +38,7 @@
   --ok:#7fcf98; --ok-bg:#16291c; --ok-line:#2b5236;
   --late:#f2958c; --late-bg:#341a18; --late-line:#5e2c27;
   --info-line:#2d4564;
-  --fisio:#6ea8ef; --fono:#b48ae6; --nutri:#8ac46a; --psico:#e7889f; --to:#eaa45a;
+  --fisio:#6ea8ef; --fono:#b48ae6; --nutri:#8ac46a; --psico:#e7889f; --to:#eaa45a; --ss:#5cc3c6;
   color-scheme:dark}
 
 *{box-sizing:border-box}
@@ -143,7 +143,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 .dot{width:24px;height:18px;border-radius:3px;font-size:9.5px;font-weight:700;display:grid;place-items:center;border:1px solid var(--c);color:var(--c);letter-spacing:.02em}
 .dot.done{background:var(--c);color:var(--surface)}
 .dot.na{border-style:dashed;color:var(--muted);border-color:var(--line);opacity:.8}
-.a-fisio{--c:var(--fisio)}.a-fono{--c:var(--fono)}.a-nutri{--c:var(--nutri)}.a-psico{--c:var(--psico)}.a-to{--c:var(--to)}
+.a-fisio{--c:var(--fisio)}.a-fono{--c:var(--fono)}.a-nutri{--c:var(--nutri)}.a-psico{--c:var(--psico)}.a-to{--c:var(--to)}.a-ss{--c:var(--ss)}
 .chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--c)}
 .chip::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--c)}
 
@@ -361,9 +361,10 @@ const AREAS=[
  {k:'fono',nome:'Fonoaudiologia',form:'Fonoaudiologia:',sig:'Fonoaudiólogo:',sigla:'FO'},
  {k:'nutri',nome:'Nutrição',form:'Nutrição:',sig:'Nutricionista:',sigla:'NU'},
  {k:'psico',nome:'Psicologia',form:'Psicologia:',sig:'Psicólogo:',sigla:'PS'},
- {k:'to',nome:'Terapia Ocupacional',form:'T.O.:',sig:'Terapeuta Ocupacional',sigla:'TO'}
+ {k:'to',nome:'Terapia Ocupacional',form:'T.O.:',sig:'Terapeuta Ocupacional',sigla:'TO'},
+ {k:'ss',nome:'Serviço Social',form:'Serviço Social:',sig:'Assistente Social:',sigla:'SS'}
 ];
-const SIG_ORDER=['fono','fisio','to','psico','nutri'];
+const SIG_ORDER=['fono','fisio','to','psico','nutri','ss'];
 const AREA=Object.fromEntries(AREAS.map(a=>[a.k,a]));
 const KEY='pts-compartilhado-v1';
 const $=s=>document.querySelector(s);
@@ -385,7 +386,8 @@ function seed(){
     P('p2','Larissa Ortiz','fono','CRFa 0-00000'),
     P('p3','Renata Kato','nutri','CRN 00000'),
     P('p4','Diego Ferraz','psico','CRP 00/00000'),
-    P('p5','Camila Benites','to','CREFITO 000002-TO')
+    P('p5','Camila Benites','to','CREFITO 000002-TO'),
+    P('p7','Fernanda Arruda','ss','CRESS 00000')
   ];
   const d=(n)=>{const x=new Date();x.setDate(x.getDate()+n);return x.toISOString()};
   const day=(n)=>d(n).slice(0,10);
@@ -394,13 +396,14 @@ function seed(){
   {id:'ex1',prontuario:'00123',nome:'(Exemplo) João Pedro Almeida',nasc:'2017-03-14',ensino:'sim',hipotese:'Paralisia cerebral espástica bilateral (diplegia) – GMFCS II',
    respId:'p1',objPaciente:'Família deseja que ele consiga andar na escola sem cair e subir no ônibus sozinho. Quer ser mais bem compreendido pelos colegas quando fala.',
    therasuit:'sim',aquatica:'nao',prazo:day(5),criadoEm:d(-6),assinadoEm:null,dataExplicacao:'',
-   equipe:{fisio:'p1',fono:'p2',nutri:null,psico:'p4',to:'p5'},
+   equipe:{fisio:'p1',fono:'p2',nutri:null,psico:'p4',to:'p5',ss:'p7'},
    areas:{
     fisio:A('Melhorar o equilíbrio dinâmico e a resistência na marcha, reduzindo quedas no ambiente escolar; ganhar ADM de dorsiflexão com programa domiciliar de alongamento orientado à família.','Marcha comunitária independente em terrenos irregulares e subida/descida de degraus de ônibus com apoio de corrimão, sem auxílio de terceiros.',true),
     fono:A('Melhorar a inteligibilidade de fala em contexto de conversa com familiares; ampliar o controle respiratório para a fala.','Ser compreendido por interlocutores não familiares (colegas e professores) na maior parte das trocas em sala de aula.',true),
     nutri:A('','',false),
     psico:A('Acolher a criança e a família em relação às frustrações nas atividades escolares.','',false),
-    to:A('','',false)},
+    to:A('','',false),
+    ss:A('Orientar a família sobre o BPC e o passe livre no transporte coletivo; articular com o CRAS de referência o acompanhamento da família.','',false)},
    mensagens:[
     {id:uid(),autorId:'p1',texto:'Pessoal, abri o PTS do João Pedro. A família trouxe como principal queixa as quedas no recreio e a dificuldade de subir no ônibus escolar. Indiquei Therasuit.',em:d(-6)},
     {id:uid(),autorId:'p2',texto:'Preenchi a parte da fono. A mãe comentou que ele tem evitado falar na sala por vergonha. Diego, vale olhar isso também?',em:d(-3)},
@@ -458,6 +461,7 @@ function exemploAssinar(){
 S.flags=S.flags||{};
 if(!S.flags.ex4){if(!S.pts.some(x=>x.id==='ex4')&&S.profs.some(x=>x.id==='p1'))S.pts.unshift(exemploAssinar());S.flags.ex4=true;save(true)}
 S.pedidos=S.pedidos||[];
+if(!S.flags.ss1){if(!S.profs.some(x=>x.area==='ss')&&S.profs.some(x=>x.id==='p1'))S.profs.push({id:'p7',nome:'Fernanda Arruda',area:'ss',registro:'CRESS 00000'});S.flags.ss1=true;save(true)}
 if(!S.flags.ped1){const d=n=>{const x=new Date();x.setDate(x.getDate()+n);return x.toISOString()};
   if(S.profs.some(x=>x.id==='p1')&&S.profs.some(x=>x.id==='p3'))S.pedidos.push({id:'ped1',nome:'(Exemplo) Antônia Ferreira Lima',prontuario:'00310',solicitanteId:'p3',destinoId:'p1',
     motivo:'Atendo a dona Antônia na Nutrição há 3 semanas e ela ainda não tem PTS. Ela também faz Fisioterapia com você.',criadoEm:d(-9),cobrancas:[d(-2)],status:'aguardando',historico:[{em:d(-9),texto:'Pedido feito por Renata Kato'},{em:d(-2),texto:'Renata Kato cobrou a abertura'}]});
@@ -499,7 +503,7 @@ async function sha(str){
 }
 const codeOf=h=>(h.slice(0,4)+'-'+h.slice(4,8)).toUpperCase();
 function payloadArea(p,k,sig){const ar=p.areas[k];return JSON.stringify({tipo:'area',pts:p.id,prontuario:p.prontuario,paciente:p.nome,area:k,medio:ar.medio,longo:ar.longo,prof:sig.profId,registro:sig.registro,em:sig.em})}
-function payloadResp(p,sig){return JSON.stringify({tipo:'responsavel',pts:p.id,prontuario:p.prontuario,paciente:p.nome,nasc:p.nasc,hipotese:p.hipotese,objetivos:p.objPaciente,therasuit:p.therasuit,aquatica:p.aquatica,areas:AREAS.map(a=>p.areas[a.k]?.assinatura?.hash||null),prof:sig.profId,registro:sig.registro,em:sig.em})}
+function payloadResp(p,sig){return JSON.stringify({tipo:'responsavel',pts:p.id,prontuario:p.prontuario,paciente:p.nome,nasc:p.nasc,hipotese:p.hipotese,objetivos:p.objPaciente,therasuit:p.therasuit,aquatica:p.aquatica,areas:AREAS.filter(a=>a.k!=='ss'||p.equipe.ss).map(a=>p.areas[a.k]?.assinatura?.hash||null),prof:sig.profId,registro:sig.registro,em:sig.em})}
 async function makeSig(p,k,profObj,img,modo){const sig={profId:profObj.id,nome:profObj.nome,registro:profObj.registro,em:nowISO(),img:modo==='desenho'?img:null,modo};sig.hash=await sha(k==='resp'?payloadResp(p,sig):payloadArea(p,k,sig));sig.codigo=codeOf(sig.hash);return sig}
 function sigMini(sig){return sig.img?`<img src="${sig.img}" alt="Assinatura de ${esc(sig.nome)}">`:`<span class="typed-mini">${esc(sig.nome)}</span>`}
 function sigStamp(sig){return `Assinado eletronicamente em ${fmtD(sig.em)} ${fmtDT(sig.em).split(' às ')[1]} · Cód. ${sig.codigo}`}
@@ -1386,13 +1390,13 @@ async function gerarPDF(p,opt){
   ensure(16);font('normal',10);doc.text('Encaminhamento para Therasuit',M,y);bx=M+doc.getTextWidth('Encaminhamento para Therasuit')+3;bx=box(bx,'Sim',p.therasuit==='sim');box(bx,'Não',p.therasuit==='nao');y+=LH;
   doc.text('Encaminhamento para Fisioterapia Aquática',M,y);bx=M+doc.getTextWidth('Encaminhamento para Fisioterapia Aquática')+3;bx=box(bx,'Sim',p.aquatica==='sim');box(bx,'Não',p.aquatica==='nao');y+=LH+4;
   function secao(titulo,suf,campo){ensure(20);font('normal',10);ink();doc.text('Objetivos em ',M,y);let x=M+doc.getTextWidth('Objetivos em ');font('bold',10);doc.text(titulo,x,y);x+=doc.getTextWidth(titulo);font('normal',10);doc.text(' '+suf,x,y);y+=LH+.5;
-    AREAS.forEach(a=>{ensure(LH*2);const val=p.equipe[a.k]?(p.areas[a.k]?.[campo]||''):'Não se aplica';field(a.form,val,M,W,2);y+=LH+.2});y+=2}
+    AREAS.forEach(a=>{ensure(LH*2);const val=p.equipe[a.k]?(p.areas[a.k]?.[campo]||''):'Não se aplica';field(a.form,val,M,W,val.trim()?1:2);y+=LH+.2});y+=2}
   secao('MÉDIO PRAZO','(6 meses)','medio');
   secao('LONGO PRAZO','(12 meses)','longo');
   // tabela de assinaturas
-  ensure(52);const cw=W/5,th=31;
+  ensure(52);const cw=W/SIG_ORDER.length,th=31;
   for(let i=0;i<SIG_ORDER.length;i++){const k=SIG_ORDER[i];const x=M+i*cw;doc.rect(x,y,cw,th);font('normal',9);ink();doc.text(doc.splitTextToSize(AREA[k].sig,cw-3),x+1.5,y+4.5);const pr=prof(p.equipe[k]);const sg=!GOV()&&p.equipe[k]&&p.areas[k]?.assinatura;
-    if(sg){try{doc.addImage(await sigImg(sg),'PNG',x+2.5,y+6.5,30,10)}catch(e){}font('normal',6);blue();doc.text('Ass. eletrônica '+fmtD(sg.em),x+1.5,y+18.8);doc.text('Cód. '+sg.codigo,x+1.5,y+21.6)}
+    if(sg){try{doc.addImage(await sigImg(sg),'PNG',x+1.5,y+6.5,Math.min(30,cw-3),Math.min(30,cw-3)/3)}catch(e){}font('normal',6);blue();doc.text('Ass. eletrônica '+fmtD(sg.em),x+1.5,y+18.8);doc.text('Cód. '+sg.codigo,x+1.5,y+21.6)}
     const ga=p.equipe[k]&&gAss[p.equipe[k]];if(ga){font('bold',6.4);doc.setTextColor(34,105,63);doc.text('Assinado digitalmente',x+1.5,y+12);font('normal',6.2);doc.text('via gov.br em '+fmtD(ga.em),x+1.5,y+15)}
     if(pr){font('normal',7);blue();doc.text(doc.splitTextToSize(pr.nome,cw-3)[0],x+1.5,y+th-5.6);doc.text(doc.splitTextToSize(pr.registro||'',cw-3)[0],x+1.5,y+th-2.2)}ink()}
   y+=th+4.5;font('bold',8.5);ink();doc.text('•  APÓS 12 MESES DE TRATAMENTO FAZER NOVO PTS PARA CONTINUIDADE DO TRATAMENTO',M+4,y);
@@ -1409,4 +1413,5 @@ render();
 migrar();
 })();
 </script>
+
 </body></html>

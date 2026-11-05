@@ -7,7 +7,7 @@ create table if not exists public.pts_usuarios(
   email text not null unique,
   senha_hash text not null,
   nome text not null,
-  area text not null check (area in ('fisio','fono','nutri','psico','to')),
+  area text not null check (area in ('fisio','fono','nutri','psico','to','ss')),
   registro text default '',
   papel text not null default 'prof' check (papel in ('prof','coord')),
   ativo boolean not null default true,
