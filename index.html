@@ -644,7 +644,7 @@ function altaFormHTML(p,k){const pid=p.equipe[k];
     <label class="f c2" for="al-data">Data da alta<input type="date" id="al-data" value="${todayStr()}" max="${todayStr()}"></label>
     <label class="f c4" for="al-mot">Motivo<select id="al-mot">${MOTIVOS_ALTA.map(m=>`<option>${m}</option>`).join('')}</select></label>
     <label class="f c6" for="al-obs">Observação (opcional)<input type="text" id="al-obs" placeholder="Ex.: Orientado a manter acompanhamento na UBS de referência"></label>
-    ${transf?`<label class="f c6" for="al-resp">Quem assume a responsabilidade pelo PTS<select id="al-resp">${restantes.map(id=>`<option value="${id}">${esc(prof(id).nome)} (${esc(AREA[prof(id).area].nome)})</option>`).join('')}</select><span class="hint">${esc(prof(pid)?.nome||'')} é o responsável por este PTS. Escolha quem continua acompanhando o caso.</span></label>`:''}
+    ${transf?`<label class="f c6" for="al-resp">Responsável pelo PTS<select id="al-resp"><option value="">Manter ${esc(prof(pid)?.nome||'')} como responsável</option>${restantes.map(id=>`<option value="${id}">Transferir para ${esc(prof(id).nome)} (${esc(AREA[prof(id).area].nome)})</option>`).join('')}</select><span class="hint">Mesmo com a alta, ${esc(prof(pid)?.nome||'')} continua responsável pelo PTS, a não ser que você escolha transferir.</span></label>`:''}
    </div>
    ${ultima?'<div class="callout info"><div>Esta é a última área em atendimento. Com esta alta, o PTS será <b>encerrado</b>.</div></div>':''}
    <p class="small" id="al-err" style="color:var(--late);font-weight:600;margin:0" hidden></p>
@@ -737,7 +737,7 @@ function vPTS(p){
     const podeAlta=pid===u.id||isResp||u.papel==='coord', al=altaDe(p,a.k);
     if(al)return `<article class="area alta a-${a.k}" id="area-${a.k}"><div class="area-h"><div><h3>${a.nome}</h3><div class="small muted">${esc(prof(pid)?.nome||'')}${pid===u.id?' (você)':''}</div></div><span class="pill alta">Alta em ${fmtD(al.em)}</span></div>
      <div class="area-b">${(ar.medio||ar.longo)?`<label class="f">Médio prazo (6 meses)<textarea readonly>${esc(ar.medio)}</textarea></label><label class="f">Longo prazo (12 meses)<textarea readonly>${esc(ar.longo)}</textarea></label>`:'<p class="small muted" style="margin:0">Objetivos não preenchidos antes da alta.</p>'}</div>
-     <div class="area-f"><span class="lock"><b>Motivo da alta:</b> ${esc(al.motivo)}${al.obs?' · '+esc(al.obs):''} · registrada por ${esc(prof(al.porId)?.nome||'')}</span>${podeAlta?`<button class="btn" data-act="alta-desfazer" data-area="${a.k}">Desfazer alta</button>`:''}</div></article>`;
+     <div class="area-f"><span class="lock"><b>Motivo da alta:</b> ${esc(al.motivo)}${al.obs?' · '+esc(al.obs):''} · registrada por ${esc(prof(al.porId)?.nome||'')}${pid===p.respId?' · segue como responsável pelo PTS':''}</span>${podeAlta?`<button class="btn" data-act="alta-desfazer" data-area="${a.k}">Desfazer alta</button>`:''}</div></article>`;
     const pode=pid===u.id&&!travado, done=!!ar.concluidoEm;
     const ro=!pode||done||(signing&&signing.pts===p.id&&signing.k===a.k);
     const emAss=signing&&signing.pts===p.id&&signing.k===a.k;
