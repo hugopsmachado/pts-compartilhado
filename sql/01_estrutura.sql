@@ -226,8 +226,14 @@ language plpgsql security definer set search_path = '' as $$
 declare u public.pts_usuarios := public.pts__usuario(p_token);
 begin
   if u.papel <> 'coord' then raise exception 'sem_permissao'; end if;
+  if p_id = u.id and (coalesce(p_dados->>'papel','coord') <> 'coord' or (p_dados->>'ativo') = 'false') then raise exception 'proprio_coord'; end if;
+  if coalesce(p_dados->>'senha','') <> '' and length(p_dados->>'senha') < 8 then raise exception 'senha_curta'; end if;
+  if p_dados ? 'nome' and trim(coalesce(p_dados->>'nome','')) = '' then raise exception 'nome_vazio'; end if;
+  if p_dados ? 'email' and position('@' in coalesce(p_dados->>'email','')) = 0 then raise exception 'email_invalido'; end if;
   update public.pts_usuarios set
-    nome = coalesce(p_dados->>'nome', nome), area = coalesce(p_dados->>'area', area), registro = coalesce(p_dados->>'registro', registro),
+    nome = coalesce(nullif(trim(p_dados->>'nome'),''), nome),
+    email = coalesce(nullif(lower(trim(p_dados->>'email')),''), email),
+    area = coalesce(p_dados->>'area', area), registro = coalesce(trim(p_dados->>'registro'), registro),
     papel = coalesce(p_dados->>'papel', papel), ativo = coalesce((p_dados->>'ativo')::boolean, ativo),
     senha_hash = case when coalesce(p_dados->>'senha','') <> '' then extensions.crypt(p_dados->>'senha', extensions.gen_salt('bf')) else senha_hash end
   where id = p_id;

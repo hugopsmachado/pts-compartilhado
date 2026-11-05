@@ -1428,7 +1428,7 @@ async function rpc(fn,args){
   if(!r.ok){const msg=(j&&(j.message||j.hint))||('erro '+r.status);if(/sessao_invalida/.test(msg)){srvSessaoExpirada();throw new Error('sessão expirada')}throw new Error(msg)}
   return j;
 }
-const ERROS={senha_curta:'A senha precisa ter pelo menos 8 caracteres.',senha_atual_incorreta:'A senha atual está incorreta.',sem_permissao:'Só a coordenação pode fazer isso.',arquivo_grande:'O arquivo é grande demais (máximo de 10 MB).'};
+const ERROS={senha_curta:'A senha precisa ter pelo menos 8 caracteres.',senha_atual_incorreta:'A senha atual está incorreta.',sem_permissao:'Só a coordenação pode fazer isso.',arquivo_grande:'O arquivo é grande demais (máximo de 10 MB).',proprio_coord:'Você não pode tirar o próprio perfil de coordenação nem se desativar.',nome_vazio:'Informe o nome.',email_invalido:'Informe um e-mail válido.'};
 const msgErro=e=>{const m=String(e&&e.message||e);for(const k in ERROS)if(m.includes(k))return ERROS[k];if(/duplicate key|pts_usuarios_email_key/.test(m))return 'Já existe um profissional com este e-mail.';return m};
 function srvMontar(c){
   const eu=c.eu,cfg=c.config||{};
@@ -1516,6 +1516,12 @@ document.addEventListener('submit',async e=>{
     if($('#ps-nova').value!==$('#ps-nova2').value){err.textContent='As duas senhas novas não são iguais.';err.hidden=false;return}
     try{await rpc('pts_trocar_senha',{p_token:srvToken,p_atual:$('#ps-atual').value,p_nova:$('#ps-nova').value});document.getElementById('dlg-senha')?.remove();toast('Senha alterada.')}
     catch(x){err.textContent=msgErro(x);err.hidden=false}return}
+  if(e.target.id==='form-editar-prof'){e.preventDefault();e.stopImmediatePropagation();const err=$('#ep-err');const id=e.target.dataset.id;
+    const dados={nome:$('#ep-nome').value.trim(),area:$('#ep-area').value,registro:$('#ep-reg').value.trim(),email:$('#ep-email').value.trim()};
+    if(!$('#ep-papel').disabled)dados.papel=$('#ep-papel').value;
+    if(!dados.nome||!dados.email){err.textContent='Informe nome e e-mail.';err.hidden=false;return}
+    try{await rpc('pts_usuario_atualizar',{p_token:srvToken,p_id:id,p_dados:dados});document.getElementById('dlg-prof')?.remove();await srvRecarregar(true);toast('Dados de '+dados.nome+' atualizados.')}
+    catch(x){err.textContent=msgErro(x);err.hidden=false}return}
   if(e.target.id==='form-prof'){e.preventDefault();e.stopImmediatePropagation();const err=$('#np-err');
     const nome=$('#np-nome').value.trim(),email=($('#np-email')?.value||'').trim(),senha=$('#np-senha')?.value||'';
     if(!nome||!email){err.textContent='Informe nome e e-mail.';err.hidden=false;return}
@@ -1537,6 +1543,18 @@ document.addEventListener('click',async e=>{
     d.innerHTML=`<form class="login-card" id="form-senha" novalidate><h2>Alterar senha</h2><label class="f" for="ps-atual">Senha atual<input type="password" id="ps-atual" autocomplete="current-password"></label><label class="f" for="ps-nova">Nova senha (mínimo 8 caracteres)<input type="password" id="ps-nova" autocomplete="new-password"></label><label class="f" for="ps-nova2">Repita a nova senha<input type="password" id="ps-nova2" autocomplete="new-password"></label><p class="small" id="ps-err" style="color:var(--late);font-weight:600;margin:0" hidden></p><div class="row"><button class="btn primary" type="submit">Salvar</button><button class="btn" type="button" data-srv="fechar">Cancelar</button></div></form>`;
     document.body.appendChild(d);setTimeout(()=>$('#ps-atual')?.focus(),0)}
   if(a==='fechar'){b.closest('.dlg')?.remove()}
+  if(a==='editar'){const pr=prof(b.dataset.id);if(!pr)return;document.getElementById('dlg-prof')?.remove();const d=document.createElement('div');d.id='dlg-prof';d.className='dlg';
+    const proprio=pr.id===S.currentUser;
+    d.innerHTML=`<form class="login-card" id="form-editar-prof" data-id="${pr.id}" novalidate><h2>Editar profissional</h2>
+      <label class="f" for="ep-nome">Nome<input type="text" id="ep-nome" value="${esc(pr.nome)}"></label>
+      <label class="f" for="ep-area">Área<select id="ep-area">${AREAS.map(x=>`<option value="${x.k}" ${x.k===pr.area?'selected':''}>${x.nome}</option>`).join('')}</select></label>
+      <label class="f" for="ep-reg">Registro profissional<input type="text" id="ep-reg" value="${esc(pr.registro||'')}"></label>
+      <label class="f" for="ep-email">E-mail (login)<input type="text" id="ep-email" inputmode="email" value="${esc(pr.email||'')}"></label>
+      <label class="f" for="ep-papel">Perfil<select id="ep-papel" ${proprio?'disabled':''}><option value="prof" ${pr.papel!=='coord'?'selected':''}>Profissional</option><option value="coord" ${pr.papel==='coord'?'selected':''}>Coordenação</option></select>${proprio?'<span class="hint">Você não pode mudar o próprio perfil.</span>':''}</label>
+      <p class="small muted" style="margin:0">Mudar a área não altera os PTS já abertos: confira a equipe deles se for preciso.</p>
+      <p class="small" id="ep-err" style="color:var(--late);font-weight:600;margin:0" hidden></p>
+      <div class="row"><button class="btn primary" type="submit">Salvar</button><button class="btn" type="button" data-srv="fechar">Cancelar</button></div></form>`;
+    document.body.appendChild(d);setTimeout(()=>$('#ep-nome')?.focus(),0)}
   if(a==='redefinir'){const id=b.dataset.id;const inp=document.getElementById('rs-'+id);if(!inp){const s=document.createElement('span');s.className='row';s.innerHTML=`<input type="text" id="rs-${id}" placeholder="Nova senha (8+)" style="width:150px;height:26px"><button class="btn sm primary" data-srv="redefinir" data-id="${id}">Salvar</button>`;b.replaceWith(s);return}
     try{await rpc('pts_usuario_atualizar',{p_token:srvToken,p_id:id,p_dados:{senha:inp.value}});toast('Senha redefinida. Passe a nova senha para a pessoa.');render()}catch(x){toast(msgErro(x))}}
 },true);
@@ -1550,7 +1568,7 @@ function srvPosRender(r){
     const f=$('#form-prof');
     if(f&&!coord){f.closest('section').innerHTML='<h2>Cadastrar profissional</h2><p class="small muted" style="margin:0">Só a coordenação cadastra e desativa profissionais.</p>'}
     else if(f&&!$('#np-email')){const reg=$('#np-reg').closest('label');reg.insertAdjacentHTML('afterend',`<label class="f c2" for="np-email">E-mail (login)<input type="text" id="np-email" inputmode="email"></label><label class="f c2" for="np-senha">Senha inicial (8+)<input type="text" id="np-senha"></label><label class="f c2" for="np-papel">Perfil<select id="np-papel"><option value="prof">Profissional</option><option value="coord">Coordenação</option></select></label>`)}
-    document.querySelectorAll('[data-act=rm-prof]').forEach(b=>{if(!coord)b.remove();else{b.textContent='Desativar';const pr=prof(b.dataset.id);b.insertAdjacentHTML('beforebegin',`<button class="btn sm ghost" data-srv="redefinir" data-id="${b.dataset.id}">Redefinir senha</button>`);if(pr){const sub=b.closest('.spread')?.querySelector('.small');if(sub&&pr.email)sub.textContent=(pr.registro||'Sem registro')+' · '+pr.email+(pr.papel==='coord'?' · coordenação':'')}}});
+    document.querySelectorAll('[data-act=rm-prof]').forEach(b=>{if(!coord)b.remove();else{b.textContent='Desativar';const pr=prof(b.dataset.id);b.classList.add('sm');const bx=document.createElement('div');bx.className='row';bx.style.cssText='flex-basis:100%;gap:2px;margin-left:-9px';bx.innerHTML=`<button class="btn sm ghost" data-srv="editar" data-id="${b.dataset.id}">Editar</button><button class="btn sm ghost" data-srv="redefinir" data-id="${b.dataset.id}">Redefinir senha</button>`;b.before(bx);bx.appendChild(b);if(pr){const sub=b.closest('.spread')?.querySelector('.small');if(sub&&pr.email)sub.textContent=(pr.registro||'Sem registro')+' · '+pr.email+(pr.papel==='coord'?' · coordenação':'')}}});
     if(!coord)document.querySelectorAll('[name=cfg-metodo],[data-cfg]').forEach(x=>x.disabled=true);
   }
 }
