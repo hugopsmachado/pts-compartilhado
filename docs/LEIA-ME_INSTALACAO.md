@@ -10,6 +10,7 @@ Documento para a equipe de TI da APAE Campo Grande / CER IV.
 | `sql/01_estrutura.sql` | Cria as tabelas, as regras de acesso e as funções do banco (PostgreSQL). |
 | `sql/02_dados_demonstracao.sql` | Opcional. Pacientes e profissionais **fictícios** para treinamento. |
 | `sql/03_rede_campo_grande.sql` | Cadastro inicial de UBS/USF, CRAS e CAPS de Campo Grande-MS. |
+| `sql/04_seguranca.sql` | Reforços de segurança: visibilidade só da equipe, saída por inatividade, registro de acessos e verificação em duas etapas. **Obrigatório.** |
 | `SEGURANCA_E_LGPD.md` | Como os dados são protegidos. Para o jurídico/encarregado de dados. |
 
 ## Como o sistema funciona (arquitetura)
@@ -23,12 +24,12 @@ Navegador do profissional  ──HTTPS──►  API do Supabase (PostgREST)  �
 - O sistema chama apenas funções `pts_*` (SECURITY DEFINER), que validam a sessão do usuário a cada chamada e aplicam as permissões (cada profissional edita só a própria área do PTS; só a coordenação cadastra usuários e altera configurações).
 - Login próprio do sistema (tabela `pts_usuarios`), com senha criptografada (bcrypt), bloqueio após 5 tentativas erradas e sessões que expiram após 12 horas sem uso.
 - PDFs assinados pelo gov.br ficam na tabela `pts_arquivos`.
-- Registro de ações em `pts_auditoria` (login, exclusões, cadastro de profissionais).
+- Registro de ações em `pts_auditoria` (login, exclusões, cadastro de profissionais) e de leituras em `pts_acessos`.
 
 ## Opção A – Supabase em nuvem (usada no piloto)
 
 1. Criar uma conta no Supabase **com e-mail institucional** e um projeto na região **São Paulo (sa-east-1)**.
-2. No *SQL Editor*, rodar `sql/01_estrutura.sql` e depois `sql/03_rede_campo_grande.sql`.
+2. No *SQL Editor*, rodar `sql/01_estrutura.sql`, depois `sql/03_rede_campo_grande.sql` e depois `sql/04_seguranca.sql`.
 3. Criar o primeiro usuário da coordenação (trocar e-mail, nome e senha):
    ```sql
    insert into public.pts_usuarios(email, senha_hash, nome, area, registro, papel)
@@ -56,7 +57,9 @@ O Supabase é de código aberto e roda com Docker no servidor da instituição.
 5. Rodar os scripts SQL e criar o usuário da coordenação como nos passos 2 e 3 da Opção A (pelo Studio, em `http://<servidor>:8000`).
 6. Trocar `url` e `key` no HTML (passo 5 da Opção A).
 
-**Alternativa mínima:** como o sistema usa só PostgreSQL + PostgREST, a TI pode rodar apenas esses dois componentes (sem o restante do Supabase). Nesse caso, criar os papéis `anon` e `authenticated` antes de rodar `01_estrutura.sql` e apontar o PostgREST para o schema `public`.
+**Alternativa mínima:** como o sistema usa só PostgreSQL + PostgREST, a TI pode rodar apenas esses dois componentes (sem o restante do Supabase). Nesse caso, criar os papéis `anon` e `authenticated` antes de rodar `01_estrutura.sql` e apontar o PostgREST para o schema `public`. O banco precisa da extensão `pgcrypto` no schema `extensions` (senhas e códigos de duas etapas).
+
+O site carrega duas bibliotecas do cdnjs.cloudflare.com: jsPDF (gerar a ficha em PDF) e qrcode-generator (QR code das duas etapas). Se a rede do CER bloquear sites externos, baixe os dois arquivos e sirva junto com o HTML.
 
 ## Onde colocar o HTML
 

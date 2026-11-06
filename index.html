@@ -481,7 +481,7 @@ const diasDesde=iso=>Math.max(0,Math.floor((Date.now()-new Date(iso).getTime())/
 const haDias=iso=>{const n=diasDesde(iso);return n===0?'hoje':n===1?'há 1 dia':'há '+n+' dias'};
 const pedById=id=>S.pedidos.find(x=>x.id===id);
 function pedidosPara(uid){return S.pedidos.filter(x=>x.status==='aguardando'&&x.destinoId===uid)}
-function ptsDoProntuario(pr){pr=(pr||'').trim();return pr?S.pts.find(x=>x.prontuario===pr&&!x.assinadoEm&&!x.encerradoEm):null}
+function ptsDoProntuario(pr){pr=(pr||'').trim();if(!pr)return null;const v=S.pts.find(x=>x.prontuario===pr&&!x.assinadoEm&&!x.encerradoEm);if(v)return v;const i=(S.indice||[]).find(x=>x.prontuario===pr&&x.ativo);return i?{id:i.id,nome:'paciente de outra equipe',respId:i.respId,oculto:true}:null}
 function pedAtrasado(x){return x.status==='aguardando'&&diasDesde(x.criadoEm)>=7}
 function textoCobranca(x){const de=prof(x.solicitanteId),para=prof(x.destinoId);return `Olá, ${para?.nome.split(' ')[0]||''}! O paciente ${x.nome}${x.prontuario?' (prontuário '+x.prontuario+')':''} ainda não tem PTS aberto. Pedi a abertura no PTS Compartilhado ${haDias(x.criadoEm)}. Consegue abrir? Assim a equipe já pode preencher os objetivos. – ${de?.nome||''} (${de?AREA[de.area].nome:''})`}
 const GOV=()=>S.metodoAss==='govbr';
@@ -1063,7 +1063,7 @@ document.addEventListener('submit',e=>{
     save(true);render();toast(prof(nr).nome+' agora é responsável pelo PTS.');return}
   if(f.id==='form-pedido'){const nome=$('#pd-nome').value.trim(),pr=$('#pd-pront').value.trim(),err=$('#pd-err');
     if(!nome){err.textContent='Informe o nome do paciente.';err.hidden=false;return}
-    const ex=ptsDoProntuario(pr);if(ex&&!f.dataset.forcar){const av=$('#pd-aviso');av.innerHTML='Já existe um PTS ativo para o prontuário '+esc(pr)+' ('+esc(ex.nome)+', responsável '+esc(prof(ex.respId)?.nome||'')+'). <a href="#pts-'+ex.id+'">Ver o PTS</a> ou envie de novo para pedir mesmo assim.';av.hidden=false;f.dataset.forcar='1';return}
+    const ex=ptsDoProntuario(pr);if(ex&&!f.dataset.forcar){const av=$('#pd-aviso');av.innerHTML='Já existe um PTS ativo para o prontuário '+esc(pr)+' ('+esc(ex.nome)+', responsável '+esc(prof(ex.respId)?.nome||'')+'). '+(ex.oculto?'Você não está na equipe desse PTS: fale com o responsável':'<a href="#pts-'+ex.id+'">Ver o PTS</a>')+' ou envie de novo para pedir mesmo assim.';av.hidden=false;f.dataset.forcar='1';return}
     const dup=S.pedidos.find(x=>x.status==='aguardando'&&pr&&x.prontuario===pr);if(dup){err.textContent='Já existe um pedido aguardando para este prontuário, feito por '+(prof(dup.solicitanteId)?.nome||'')+'. Use "Cobrar de novo" nele.';err.hidden=false;return}
     const x={id:uid(),nome,prontuario:pr,solicitanteId:S.currentUser,destinoId:$('#pd-para').value,motivo:$('#pd-mot').value.trim(),criadoEm:nowISO(),cobrancas:[],status:'aguardando',historico:[{em:nowISO(),texto:'Pedido feito por '+me().nome}]};
     S.pedidos.push(x);save(true);location.hash='#painel';toast('Pedido enviado para '+(prof(x.destinoId)?.nome||'')+'. Ele aparece no painel da pessoa.');return}
@@ -1475,7 +1475,16 @@ async function gerarPDF(p,opt){
 
 /* ================= Modo servidor (Supabase) ================= */
 let srvToken=null,srvSnap=new Map(),srvVersao=0,srvTimer=null,srvAgendado=false,srvSyncing=false,srvPendente=false,srvRecPend=false,srvPoll=null;
-const TOKEN_KEY='pts-srv-token';
+const TOKEN_KEY='pts-srv-token',ATIV_KEY='pts-srv-ativ',INATIVO_MS=15*60*1000;
+let srvUltAtiv=Date.now(),srvAvisoIn=false,srvAcessoReg={};
+function srvMarcaAtiv(){srvUltAtiv=Date.now();if(srvAvisoIn){srvAvisoIn=false;document.getElementById('aviso-inativo')?.remove()}try{if(!srvMarcaAtiv.t||srvUltAtiv-srvMarcaAtiv.t>20000){srvMarcaAtiv.t=srvUltAtiv;localStorage.setItem(ATIV_KEY,String(srvUltAtiv))}}catch(e){}}
+['pointerdown','keydown','wheel','touchstart'].forEach(ev=>document.addEventListener(ev,srvMarcaAtiv,{capture:true,passive:true}));
+function srvUltimaAtividade(){let o=0;try{o=+localStorage.getItem(ATIV_KEY)||0}catch(e){}return Math.max(srvUltAtiv,o)}
+function srvLimparDados(){if(S){S.pts=[];S.pedidos=[];S.indice=[]}try{memF.clear()}catch(e){}$('#app')&&($('#app').innerHTML='')}
+setInterval(()=>{if(!srvToken)return;const parado=Date.now()-srvUltimaAtividade();
+  if(parado>=INATIVO_MS){const t=srvToken;srvToken=null;rpc('pts_sair',{p_token:t}).catch(()=>{});try{sessionStorage.removeItem(TOKEN_KEY)}catch(e){}clearInterval(srvPoll);srvLimparDados();srvLogin('Sessão encerrada depois de 15 minutos sem uso. Entre novamente.');return}
+  if(parado>=INATIVO_MS-60000&&!srvAvisoIn){srvAvisoIn=true;const d=document.createElement('div');d.id='aviso-inativo';d.className='toast';d.setAttribute('role','alert');d.textContent='Por segurança, você vai sair em 1 minuto por falta de uso. Mexa o mouse ou toque na tela para continuar.';document.body.appendChild(d)}
+},15000);
 async function rpc(fn,args){
   let r;try{r=await fetch(SRV.url+'/rest/v1/rpc/'+fn,{method:'POST',headers:{'apikey':SRV.key,'Authorization':'Bearer '+SRV.key,'Content-Type':'application/json'},body:JSON.stringify(args||{})})}
   catch(e){throw new Error('sem conexão com o servidor')}
@@ -1483,7 +1492,7 @@ async function rpc(fn,args){
   if(!r.ok){const msg=(j&&(j.message||j.hint))||('erro '+r.status);if(/sessao_invalida/.test(msg)){srvSessaoExpirada();throw new Error('sessão expirada')}throw new Error(msg)}
   return j;
 }
-const ERROS={senha_curta:'A senha precisa ter pelo menos 8 caracteres.',senha_atual_incorreta:'A senha atual está incorreta.',sem_permissao:'Só a coordenação pode fazer isso.',arquivo_grande:'O arquivo é grande demais (máximo de 10 MB).',proprio_coord:'Você não pode tirar o próprio perfil de coordenação nem se desativar.',nome_vazio:'Informe o nome.',email_invalido:'Informe um e-mail válido.'};
+const ERROS={senha_curta:'A senha precisa ter pelo menos 8 caracteres.',senha_atual_incorreta:'A senha atual está incorreta.',sem_permissao:'Só a coordenação pode fazer isso.',arquivo_grande:'O arquivo é grande demais (máximo de 10 MB).',proprio_coord:'Você não pode tirar o próprio perfil de coordenação nem se desativar.',codigo_invalido:'Código incorreto ou expirado. Confira no aplicativo e tente de novo.',sem_configuracao:'Comece a configuração de novo.',nome_vazio:'Informe o nome.',email_invalido:'Informe um e-mail válido.'};
 const msgErro=e=>{const m=String(e&&e.message||e);for(const k in ERROS)if(m.includes(k))return ERROS[k];if(/duplicate key|pts_usuarios_email_key/.test(m))return 'Já existe um profissional com este e-mail.';return m};
 function srvMontar(c){
   const eu=c.eu,cfg=c.config||{};
@@ -1491,7 +1500,7 @@ function srvMontar(c){
     profs:(c.usuarios||[]).filter(u=>u.ativo).map(u=>u.id===eu.id?{...u,pinHash:eu.pinHash||undefined,assinaturaImg:eu.assinaturaImg||undefined}:u),
     inativos:(c.usuarios||[]).filter(u=>!u.ativo),
     inst1:cfg.inst1??'Associação de Pais e Amigos dos Excepcionais – APAE',inst2:cfg.inst2??'Centro Especializado de Reabilitação – CER',metodoAss:cfg.metodoAss||'govbr',
-    rede:c.rede||[],pedidos:c.pedidos||[],
+    rede:c.rede||[],pedidos:c.pedidos||[],indice:c.indice||[],
     pts:(c.pts||[]).map(x=>{const p={...x.dados};const ex=x.extra||{};if(ex.diag)p.diag=ex.diag;p.plano=ex.plano||[];p.pact=ex.pact||{};p.areas=x.areas||{};p.mensagens=x.mensagens||[];p.historico=x.historico||[];p.gov={base:ex.govBase||null,ass:x.gov||{}};return p})};
 }
 function srvEntidades(){
@@ -1531,7 +1540,7 @@ const editando=()=>{const a=document.activeElement;return !!signing||!!(a&&a.tag
 async function srvRecarregar(forcar){
   if(!srvToken)return;
   if(!forcar&&(srvAgendado||srvSyncing))return;
-  const c=await rpc('pts_carregar',{p_token:srvToken});if(!forcar&&(srvAgendado||srvSyncing))return;
+  const c=await rpc('pts_carregar',{p_token:srvToken,p_automatico:!forcar});if(!forcar&&(srvAgendado||srvSyncing))return;
   const a=document.activeElement,fid=a&&a.id,val=a&&'value' in a?a.value:null,ss=a&&a.selectionStart,se=a&&a.selectionEnd,sy=window.scrollY,msgs=$('#msgs'),ms=msgs?msgs.scrollTop:0;
   srvMontar(c);srvSnap=srvEntidades();srvVersao=c.versao;render();
   if(fid){const n=document.getElementById(fid);if(n){if(fid==='msg-txt'&&val!=null)n.value=val;n.focus({preventScroll:true});try{if(ss!=null)n.setSelectionRange(ss,se)}catch(e){}}}
@@ -1542,7 +1551,7 @@ function srvIniciarPolling(){clearInterval(srvPoll);srvPoll=setInterval(async()=
   try{const v=await rpc('pts_versao',{p_token:srvToken});if(v>srvVersao){if(editando())srvRecPend=true;else await srvRecarregar()}}catch(e){}
 },8000)}
 document.addEventListener('focusout',()=>{if(srvRecPend)setTimeout(()=>{if(!editando()&&srvRecPend){srvRecPend=false;srvRecarregar()}},400)});
-function srvSessaoExpirada(){srvToken=null;try{localStorage.removeItem(TOKEN_KEY)}catch(e){}clearInterval(srvPoll);srvLogin('Sua sessão expirou. Entre novamente.')}
+function srvSessaoExpirada(){srvToken=null;srvLimparDados();try{sessionStorage.removeItem(TOKEN_KEY)}catch(e){}clearInterval(srvPoll);srvLogin('Sua sessão expirou. Entre novamente.')}
 async function srvEntrar(token){
   srvToken=token;const c=await rpc('pts_carregar',{p_token:token});srvMontar(c);srvSnap=srvEntidades();srvVersao=c.versao;
   document.getElementById('login')?.remove();render();srvIniciarPolling();
@@ -1562,11 +1571,17 @@ function srvLogin(msg){
 }
 document.addEventListener('submit',async e=>{
   if(e.target.id==='form-login'){e.preventDefault();const err=$('#lg-err'),btn=e.target.querySelector('button');btn.disabled=true;btn.textContent='Entrando…';
-    try{const r=await rpc('pts_login',{p_email:$('#lg-email').value,p_senha:$('#lg-senha').value});
+    try{const df=e.target.dataset.desafio;
+      const r=df?await rpc('pts_login_codigo',{p_desafio:df,p_codigo:$('#lg-cod').value}):await rpc('pts_login',{p_email:$('#lg-email').value,p_senha:$('#lg-senha').value});
+      if(r.precisa_codigo){const fm=e.target;fm.dataset.desafio=r.desafio;fm.querySelectorAll('label.f,h1+p').forEach(l=>l.style.display='none');
+        fm.querySelector('h1').insertAdjacentHTML('afterend','<p style="margin:0">Verificação em duas etapas: digite o código de 6 dígitos que aparece no seu aplicativo autenticador.</p><label class="f" for="lg-cod">Código<input type="text" id="lg-cod" inputmode="numeric" autocomplete="one-time-code" maxlength="7" style="font-size:20px;letter-spacing:.3em;height:40px"></label>');
+        err.hidden=true;setTimeout(()=>$('#lg-cod')?.focus(),0);return}
+      if(r.erro==='codigo_invalido'){err.textContent='Código incorreto ou expirado. Confira no aplicativo e tente de novo.';err.hidden=false;$('#lg-cod').value='';$('#lg-cod').focus();return}
+      if(r.erro==='desafio_expirado'){srvLogin('O tempo para digitar o código acabou. Entre de novo.');return}
       if(r.erro){err.textContent=r.erro==='login_bloqueado'?'Muitas tentativas erradas. Aguarde 15 minutos ou peça à coordenação.':'E-mail ou senha incorretos.';err.hidden=false;return}
-      try{localStorage.setItem(TOKEN_KEY,r.token)}catch(x){}await srvEntrar(r.token)}
+      try{sessionStorage.setItem(TOKEN_KEY,r.token)}catch(x){}srvMarcaAtiv();await srvEntrar(r.token)}
     catch(x){err.textContent='Não foi possível conectar: '+msgErro(x);err.hidden=false}
-    finally{btn.disabled=false;btn.textContent='Entrar'}return}
+    finally{btn.disabled=false;btn.textContent=e.target.dataset.desafio?'Confirmar código':'Entrar'}return}
   if(e.target.id==='form-senha'){e.preventDefault();const err=$('#ps-err');
     if($('#ps-nova').value!==$('#ps-nova2').value){err.textContent='As duas senhas novas não são iguais.';err.hidden=false;return}
     try{await rpc('pts_trocar_senha',{p_token:srvToken,p_atual:$('#ps-atual').value,p_nova:$('#ps-nova').value});document.getElementById('dlg-senha')?.remove();toast('Senha alterada.')}
@@ -1593,11 +1608,27 @@ document.addEventListener('click',async e=>{
     if(uso.length&&!b.dataset.ok){b.dataset.ok='1';b.textContent='Está em '+uso.length+' PTS ativo(s). Clique de novo para desativar';return}
     try{await rpc('pts_usuario_atualizar',{p_token:srvToken,p_id:id,p_dados:{ativo:false}});await srvRecarregar(true);toast('Profissional desativado. Ele não consegue mais entrar.')}catch(x){toast(msgErro(x))}return}
   const a=b.dataset.srv;
-  if(a==='sair'){try{await rpc('pts_sair',{p_token:srvToken})}catch(x){}srvToken=null;try{localStorage.removeItem(TOKEN_KEY)}catch(x){}location.hash='';location.reload()}
+  if(a==='sair'){try{await rpc('pts_sair',{p_token:srvToken})}catch(x){}srvToken=null;try{sessionStorage.removeItem(TOKEN_KEY)}catch(x){}location.hash='';location.reload()}
   if(a==='senha'){document.getElementById('dlg-senha')?.remove();const d=document.createElement('div');d.id='dlg-senha';d.className='dlg';
     d.innerHTML=`<form class="login-card" id="form-senha" novalidate><h2>Alterar senha</h2><label class="f" for="ps-atual">Senha atual<input type="password" id="ps-atual" autocomplete="current-password"></label><label class="f" for="ps-nova">Nova senha (mínimo 8 caracteres)<input type="password" id="ps-nova" autocomplete="new-password"></label><label class="f" for="ps-nova2">Repita a nova senha<input type="password" id="ps-nova2" autocomplete="new-password"></label><p class="small" id="ps-err" style="color:var(--late);font-weight:600;margin:0" hidden></p><div class="row"><button class="btn primary" type="submit">Salvar</button><button class="btn" type="button" data-srv="fechar">Cancelar</button></div></form>`;
     document.body.appendChild(d);setTimeout(()=>$('#ps-atual')?.focus(),0)}
   if(a==='fechar'){b.closest('.dlg')?.remove()}
+  if(a==='rm2fa'){if(!b.dataset.ok){b.dataset.ok='1';b.textContent='Confirmar: desligar';return}const pr=prof(b.dataset.id);
+    try{await rpc('pts_usuario_atualizar',{p_token:srvToken,p_id:b.dataset.id,p_dados:{doisFatores:false}});await srvRecarregar(true);toast('Duas etapas desligadas para '+(pr?.nome||'o profissional')+'. Na próxima entrada, só a senha será pedida.')}catch(x){toast(msgErro(x))}}
+  if(a==='2fa'){srvDlg2fa()}
+  if(a==='2fa-iniciar'){const box=$('#d2-corpo');box.innerHTML='<p class="small muted">Gerando…</p>';
+    try{const c=await rpc('pts_2fa_iniciar',{p_token:srvToken});await srvQR();const q=window.qrcode(0,'M');q.addData(c.uri);q.make();
+      box.innerHTML=`<ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:10px;font-size:13px">
+       <li>Instale no celular um aplicativo autenticador: <b>Google Authenticator</b> ou <b>Microsoft Authenticator</b> (gratuitos).</li>
+       <li>No aplicativo, toque em <b>+</b> e leia este QR code:<div style="background:#fff;display:inline-block;padding:8px;border-radius:4px;margin-top:6px">${q.createSvgTag({cellSize:4,margin:2})}</div><div class="small muted">Sem câmera? Digite a chave: <span class="code" style="word-break:break-all">${c.segredo.replace(/(.{4})/g,'$1 ').trim()}</span></div></li>
+       <li>Digite o código de 6 dígitos que aparecer no aplicativo:</li></ol>
+       <label class="f" for="d2-cod">Código<input type="text" id="d2-cod" inputmode="numeric" autocomplete="one-time-code" maxlength="7" style="font-size:18px;letter-spacing:.3em"></label>
+       <div class="row"><button class="btn primary" data-srv="2fa-confirmar">Ativar</button><button class="btn" data-srv="fechar">Cancelar</button></div>`;setTimeout(()=>$('#d2-cod')?.focus(),0)}
+    catch(x){box.innerHTML='<p style="color:var(--late)">'+esc(msgErro(x))+'</p>'}}
+  if(a==='2fa-confirmar'||a==='2fa-desligar'){const err=$('#d2-err');
+    try{await rpc(a==='2fa-confirmar'?'pts_2fa_confirmar':'pts_2fa_desativar',{p_token:srvToken,p_codigo:$('#d2-cod').value});document.getElementById('dlg-2fa')?.remove();await srvRecarregar(true);
+      toast(a==='2fa-confirmar'?'Verificação em duas etapas ativada. Na próxima entrada, o site vai pedir o código do aplicativo.':'Verificação em duas etapas desligada.')}
+    catch(x){err.textContent=msgErro(x);err.hidden=false}}
   if(a==='editar'){const pr=prof(b.dataset.id);if(!pr)return;document.getElementById('dlg-prof')?.remove();const d=document.createElement('div');d.id='dlg-prof';d.className='dlg';
     const proprio=pr.id===S.currentUser;
     d.innerHTML=`<form class="login-card" id="form-editar-prof" data-id="${pr.id}" novalidate><h2>Editar profissional</h2>
@@ -1615,21 +1646,43 @@ document.addEventListener('click',async e=>{
 },true);
 function srvPosRender(r){
   const u=me();if(!u)return;const coord=u.papel==='coord';
+  const mA=r.match(/^(pts|ficha|editar)-(.+)$/);
+  if(mA){const p=ptsById(mA[2]);
+    if(!p){const ix=(S.indice||[]).find(x=>x.id===mA[2]);$('#app').innerHTML=`<div class="callout info"><div><b>${ix?'Você não faz parte da equipe deste PTS.':'PTS não encontrado.'}</b> ${ix?'Por proteção dos dados do paciente, cada profissional só vê os PTS em que é responsável ou atende o paciente. Peça para '+esc(prof(ix.respId)?.nome||'o responsável')+' incluir você na equipe.':''} <a href="#painel">Voltar ao início</a></div></div>`}
+    else{const ag=Date.now();if(!srvAcessoReg[p.id]||ag-srvAcessoReg[p.id]>10*60*1000){srvAcessoReg[p.id]=ag;rpc('pts_registrar_acesso',{p_token:srvToken,p_pts:p.id}).catch(()=>{})}
+      if(mA[1]==='pts'&&ptsTab.tab==='historico'&&(coord||p.respId===u.id)&&!document.getElementById('acessos')){
+        const s=document.createElement('section');s.className='panel';s.id='acessos';s.innerHTML='<div class="panel-h"><h2>Quem abriu este PTS</h2><span class="small muted">Visível só para o responsável e a coordenação</span></div><div class="panel-b small muted">Carregando…</div>';$('#app').appendChild(s);
+        rpc('pts_acessos_listar',{p_token:srvToken,p_pts:p.id}).then(l=>{const b=s.querySelector('.panel-b');if(!l||!l.length){b.textContent='Nenhum acesso registrado ainda.';return}
+          b.className='tbl-wrap';b.innerHTML=`<table><thead><tr><th>Profissional</th><th>Área</th><th>Data e hora</th></tr></thead><tbody>${l.map(a=>`<tr><td>${esc(a.nome)}</td><td>${esc(AREA[a.area]?.nome||'')}</td><td class="num">${new Date(a.em).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'})}</td></tr>`).join('')}</tbody></table>`}).catch(x=>{s.querySelector('.panel-b').textContent='Não foi possível carregar: '+msgErro(x)})}}}
+  if(r==='painel'&&coord&&!u.doisFatores&&!document.getElementById('aviso-2fa')){$('#app').insertAdjacentHTML('afterbegin','<div class="callout ready" id="aviso-2fa"><div><b>Recomendado para a coordenação:</b> ative a verificação em duas etapas. Assim, mesmo que alguém descubra sua senha, não consegue entrar sem o código do seu celular.</div><button class="btn" data-srv="2fa">Ativar agora</button></div>')}
   const sel=$('#user-select');if(sel){sel.hidden=true;const lb=document.querySelector('label[for=user-select]');if(lb)lb.hidden=true}
-  if(!document.getElementById('srv-acoes')){const d=document.createElement('div');d.id='srv-acoes';d.className='srv-acoes';d.innerHTML=`<span id="srv-status" class="small">Tudo salvo</span><div class="row" style="gap:6px"><button class="btn sm" data-srv="senha">Alterar senha</button><button class="btn sm" data-srv="sair">Sair</button></div>`;document.querySelector('.sb-user')?.appendChild(d)}
+  if(!document.getElementById('srv-acoes')){const d=document.createElement('div');d.id='srv-acoes';d.className='srv-acoes';d.innerHTML=`<span id="srv-status" class="small">Tudo salvo</span><div class="row" style="gap:6px"><button class="btn sm" data-srv="senha">Alterar senha</button><button class="btn sm" data-srv="2fa">Duas etapas</button><button class="btn sm" data-srv="sair">Sair</button></div>`;document.querySelector('.sb-user')?.appendChild(d)}
   const eb=document.querySelector('.envbar');if(eb&&!eb.dataset.srv){eb.dataset.srv='1';eb.innerHTML='<b>Servidor de teste</b>Dados compartilhados entre a equipe. Use apenas dados fictícios até a aprovação da APAE.'}
   if(r==='equipe'){
     document.querySelectorAll('#app section').forEach(s=>{const h=s.querySelector('h2');if(h&&/Dados do protótipo/.test(h.textContent))s.remove()});
     const f=$('#form-prof');
     if(f&&!coord){f.closest('section').innerHTML='<h2>Cadastrar profissional</h2><p class="small muted" style="margin:0">Só a coordenação cadastra e desativa profissionais.</p>'}
     else if(f&&!$('#np-email')){const reg=$('#np-reg').closest('label');reg.insertAdjacentHTML('afterend',`<label class="f c2" for="np-email">E-mail (login)<input type="text" id="np-email" inputmode="email"></label><label class="f c2" for="np-senha">Senha inicial (8+)<input type="text" id="np-senha"></label><label class="f c2" for="np-papel">Perfil<select id="np-papel"><option value="prof">Profissional</option><option value="coord">Coordenação</option></select></label>`)}
-    document.querySelectorAll('[data-act=rm-prof]').forEach(b=>{if(!coord)b.remove();else{b.textContent='Desativar';const pr=prof(b.dataset.id);b.classList.add('sm');const bx=document.createElement('div');bx.className='row';bx.style.cssText='flex-basis:100%;gap:2px;margin-left:-9px';bx.innerHTML=`<button class="btn sm ghost" data-srv="editar" data-id="${b.dataset.id}">Editar</button><button class="btn sm ghost" data-srv="redefinir" data-id="${b.dataset.id}">Redefinir senha</button>`;b.before(bx);bx.appendChild(b);if(pr){const sub=b.closest('.spread')?.querySelector('.small');if(sub&&pr.email)sub.textContent=(pr.registro||'Sem registro')+' · '+pr.email+(pr.papel==='coord'?' · coordenação':'')}}});
+    document.querySelectorAll('[data-act=rm-prof]').forEach(b=>{if(!coord)b.remove();else{b.textContent='Desativar';const pr=prof(b.dataset.id);b.classList.add('sm');const bx=document.createElement('div');bx.className='row';bx.style.cssText='flex-basis:100%;gap:2px;margin-left:-9px';bx.innerHTML=`<button class="btn sm ghost" data-srv="editar" data-id="${b.dataset.id}">Editar</button><button class="btn sm ghost" data-srv="redefinir" data-id="${b.dataset.id}">Redefinir senha</button>`;b.before(bx);bx.appendChild(b);if(pr){const sub=b.closest('.spread')?.querySelector('.small');if(sub&&pr.email)sub.textContent=(pr.registro||'Sem registro')+' · '+pr.email+(pr.papel==='coord'?' · coordenação':'')+(pr.doisFatores?' · duas etapas ativa':'');if(pr.doisFatores&&pr.id!==u.id)bx.insertAdjacentHTML('beforeend',`<button class="btn sm ghost" data-srv="rm2fa" data-id="${pr.id}">Desligar duas etapas</button>`)}}});
     if(!coord)document.querySelectorAll('[name=cfg-metodo],[data-cfg]').forEach(x=>x.disabled=true);
   }
 }
+function srvQR(){return window.qrcode?Promise.resolve():new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';s.onload=res;s.onerror=()=>rej(new Error('não foi possível carregar o gerador de QR code'));document.head.appendChild(s)})}
+function srvDlg2fa(){const u=me();document.getElementById('dlg-2fa')?.remove();const d=document.createElement('div');d.id='dlg-2fa';d.className='dlg';
+  d.innerHTML=`<div class="login-card" role="dialog" aria-labelledby="d2-t" style="max-width:440px"><h2 id="d2-t">Verificação em duas etapas</h2>
+   <p class="small" style="margin:0">Além da senha, o site pede um código de 6 dígitos que muda a cada 30 segundos no seu celular. Mesmo que alguém descubra sua senha, não consegue entrar.</p>
+   <div id="d2-corpo" style="display:flex;flex-direction:column;gap:10px">${u.doisFatores?`<div class="callout signed"><div><b>Ativa</b> na sua conta.</div></div>
+     <label class="f" for="d2-cod">Para desligar, digite o código atual do aplicativo<input type="text" id="d2-cod" inputmode="numeric" autocomplete="one-time-code" maxlength="7"></label>
+     <div class="row"><button class="btn danger" data-srv="2fa-desligar">Desligar</button><button class="btn" data-srv="fechar">Fechar</button></div>`
+    :`<div class="row"><button class="btn primary" data-srv="2fa-iniciar">Configurar agora</button><button class="btn" data-srv="fechar">Agora não</button></div>`}</div>
+   <p class="small" id="d2-err" style="color:var(--late);font-weight:600;margin:0" hidden></p>
+   <p class="small muted" style="margin:0">Perdeu o celular? A coordenação pode desligar as duas etapas da sua conta em Equipe e configurações.</p></div>`;
+  document.body.appendChild(d)}
 async function srvIniciar(){
-  let t=null;try{t=localStorage.getItem(TOKEN_KEY)}catch(e){}
-  if(t){try{await srvEntrar(t);return}catch(e){try{localStorage.removeItem(TOKEN_KEY)}catch(x){}}}
+  let t=null;try{t=sessionStorage.getItem(TOKEN_KEY)}catch(e){}
+  let o=0;try{o=+localStorage.getItem(ATIV_KEY)||0}catch(e){}if(t&&o&&Date.now()-o>INATIVO_MS){try{sessionStorage.removeItem(TOKEN_KEY)}catch(e){}rpc('pts_sair',{p_token:t}).catch(()=>{});srvLogin('Sessão encerrada depois de 15 minutos sem uso. Entre novamente.');return}
+  srvMarcaAtiv();
+  if(t){try{await srvEntrar(t);return}catch(e){try{sessionStorage.removeItem(TOKEN_KEY)}catch(x){}}}
   srvLogin();
 }
 

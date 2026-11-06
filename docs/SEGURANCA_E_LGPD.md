@@ -15,11 +15,15 @@ Dados de saúde são **dados pessoais sensíveis** (Lei 13.709/2018, art. 5º, I
 |---|---|
 | Acesso só com login individual | Cada profissional tem e-mail e senha próprios. Não há conta compartilhada. |
 | Senhas protegidas | Hash bcrypt. Mínimo de 8 caracteres. Bloqueio por 15 minutos após 5 tentativas erradas. |
-| Sessão com prazo | A sessão expira após 12 horas sem uso. Desativar um profissional encerra as sessões dele na hora. |
+| Saída automática | O site encerra a sessão depois de **15 minutos sem uso** (avisa 1 minuto antes) e apaga os dados da tela. O servidor também recusa qualquer sessão parada há mais de 30 minutos. Fechar o navegador encerra a sessão. Pensado para os computadores compartilhados do CER. |
+| Sessão com prazo | Nenhuma sessão dura mais de 12 horas. Desativar um profissional ou redefinir a senha dele encerra as sessões na hora. |
+| Verificação em duas etapas | Opcional para todos e recomendada para a coordenação. Além da senha, o login pede um código de 6 dígitos de um aplicativo autenticador (Google ou Microsoft Authenticator, padrão TOTP/RFC 6238). Um código já usado não é aceito de novo. Se alguém perder o celular, a coordenação desliga as duas etapas da conta dessa pessoa. |
+| Acesso mínimo necessário | Cada profissional **só vê os PTS em que é responsável ou atende o paciente**. A coordenação vê todos. De PTS de outras equipes, o sistema só informa o número do prontuário e o responsável, para evitar abrir um PTS duplicado. Pedidos de abertura aparecem só para quem pediu, para quem recebeu e para a coordenação. PDFs assinados só são baixados por quem pode ver o PTS. |
 | Banco fechado | As tabelas não podem ser lidas ou gravadas diretamente pela internet. Todo acesso passa por funções que conferem a sessão e as permissões. |
 | Permissões por função | Cada profissional edita só a área dele no PTS. Só o responsável ou a coordenação exclui um PTS. Só a coordenação cadastra profissionais e muda configurações. |
 | Conexão criptografada | HTTPS entre o navegador e o servidor. |
 | Registro de ações | Login, exclusões e cadastros ficam registrados (`pts_auditoria`). Cada PTS tem um histórico de quem fez o quê e quando. |
+| Registro de acessos | Cada vez que alguém abre um PTS, fica registrado quem abriu e quando (`pts_acessos`). O responsável e a coordenação veem essa lista na aba Histórico do PTS. |
 | Dados no Brasil | No piloto, o servidor fica em São Paulo (Supabase, região sa-east-1). |
 
 ## O que a APAE precisa definir antes de usar com dados reais
